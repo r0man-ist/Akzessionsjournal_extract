@@ -12,6 +12,7 @@ dist/
 # Data & logs
 data/
 **.jsonl
+CER_eval/
 
 # OS
 .DS_Store
