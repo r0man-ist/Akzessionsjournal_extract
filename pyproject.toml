@@ -1,0 +1,22 @@
+[project]
+name = "akzessionsjournal-extract"
+version = "0.1.0"
+description = "Pipeline for matching bibliographic references against library catalogues using SRU search, candidate ranking, and LLM-based judgment."
+readme = "readme.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas",
+    "lxml",
+    "requests",
+    "openai",
+    "pydantic",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+notebooks = [
+    "marimo",
+]
+
+[tool.uv]
+package = false
