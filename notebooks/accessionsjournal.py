@@ -10,11 +10,13 @@ def _():
     import pandas as pd
     import io
     import json
-    from pathlib import Path
     from datetime import datetime, timezone
     from collections import defaultdict
+    import urllib.request
+    import urllib.parse
+    import xml.etree.ElementTree as ET
 
-    return Path, datetime, defaultdict, io, json, mo, pd, timezone
+    return ET, datetime, defaultdict, io, json, mo, pd, timezone, urllib
 
 
 @app.cell
@@ -29,17 +31,18 @@ def _(mo):
 def _(mo):
     upload_csv = mo.ui.file(filetypes=[".csv"], kind="area", label="Strukturierte CSV laden")
     upload_jsonl = mo.ui.file(filetypes=[".jsonl"], kind="area", label="JSONL-Log laden")
-    output_path_input = mo.ui.text(
-        value="human_review.jsonl",
-        label="Ausgabedatei für menschliche Urteile",
-        full_width=True,
-    )
+
     mo.vstack([
         mo.md("## Dateien"),
-        mo.hstack([upload_csv, upload_jsonl], justify="start", gap=2),
-        output_path_input,
+        mo.hstack([upload_csv, upload_jsonl], justify="start", gap=2)
     ])
-    return output_path_input, upload_csv, upload_jsonl
+    return upload_csv, upload_jsonl
+
+
+@app.cell
+def _(mo):
+    get_log, set_log = mo.state([])
+    return get_log, set_log
 
 
 @app.cell
@@ -97,23 +100,6 @@ def _(defaultdict, io, json, mo, upload_jsonl):
 
 
 @app.cell
-def _(json, mo, output_path_input, save_btn):
-    from pathlib import Path as _Path
-    _x = save_btn.value  # dependency on save_btn forces re-run on click
-    _out = _Path(output_path_input.value)
-    already_human_judged: dict[tuple[str, str], dict] = {}
-    if _out.exists():
-        with _out.open(encoding="utf-8") as _fh:
-            for _line in _fh:
-                if _line.strip():
-                    _e = json.loads(_line)
-                    if _e.get("step") == "judgment":
-                        already_human_judged[(_e["row_id"], _e["ppn"])] = _e
-    mo.md(f"*{len(already_human_judged)} bereits menschlich beurteilte Einträge in `{output_path_input.value}`*")
-    return
-
-
-@app.cell
 def _(df, mo):
     row_selector = mo.ui.table(df, selection="single")
     row_selector
@@ -158,6 +144,8 @@ def _(events_by_row: dict[str, list[dict]], mo, selected_row_id):
             parts.append(f"verdict: **{e['verdict']}** ({e.get('confidence','?')}) · judged_by: {e.get('judged_by','?')}")
         if e.get("ppn"):
             parts.append(f"PPN: `{e['ppn']}`")
+        if e.get("step") == "retry_diagnosis" and e.get("failure_reason"):
+            parts.append(f" {e['failure_reason']}")
         return "  ".join(parts)
 
     _lines = [f"- {_fmt_event(e)}" for e in _events]
@@ -169,36 +157,118 @@ def _(events_by_row: dict[str, list[dict]], mo, selected_row_id):
 
 
 @app.cell
+def _(mo):
+    get_manual_ppns, set_manual_ppns = mo.state([])
+    return get_manual_ppns, set_manual_ppns
+
+
+@app.cell
+def _(selected_row_id, set_manual_ppns):
+    _reset = selected_row_id
+    set_manual_ppns([])
+    return
+
+
+@app.cell
+def _(mo, selected_row_id):
+    _reset = selected_row_id  # forces re-run when row changes
+
+    manual_query_input = mo.ui.text(
+        placeholder="z.B. pica.tit=Muster AND pica.jah=1920",
+        label="Manuelle SRU-Anfrage",
+        full_width=True,
+    )
+    manual_search_btn = mo.ui.run_button(label="Suchen", kind="neutral")
+    mo.vstack([mo.md("### Manuelle Suche"), manual_query_input, manual_search_btn])
+    return manual_query_input, manual_search_btn
+
+
+@app.cell
+def _(ET, manual_query_input, manual_search_btn, mo, set_manual_ppns, urllib):
+    mo.stop(not manual_search_btn.value)
+    mo.stop(not manual_query_input.value.strip(), mo.callout(mo.md("⚠️ Bitte eine Anfrage eingeben"), kind="warn"))
+    _params = urllib.parse.urlencode({
+        "version": "1.1",
+        "operation": "searchRetrieve",
+        "recordSchema": "marcxml",
+        "maximumRecords": "50",
+        "query": manual_query_input.value.strip(),
+    })
+    _url = f"https://sru.k10plus.de/opac-de-1?{_params}"
+    try:
+        with urllib.request.urlopen(_url, timeout=10) as _resp:
+            _xml = _resp.read().decode("utf-8")
+    except Exception as _e:
+        mo.stop(True, mo.callout(mo.md(f"⚠️ SRU-Anfrage fehlgeschlagen: {_e}"), kind="danger"))
+    _NS = {
+        "srw": "http://www.loc.gov/zing/srw/",
+        "marc": "http://www.loc.gov/MARC21/slim",
+    }
+    _root = ET.fromstring(_xml)
+    _n = int(_root.findtext("srw:numberOfRecords", "0", _NS))
+    _ppns = []
+    for _rec in _root.findall(".//marc:record", _NS):
+        for _field in _rec.findall("marc:controlfield[@tag='001']", _NS):
+            if _field.text:
+                _ppns.append(_field.text.strip())
+    set_manual_ppns(_ppns)
+    mo.md(f"**{_n} Treffer** · {len(_ppns)} PPNs geladen")
+    return
+
+
+@app.cell
 def _(
     latest_ranking,
     mo,
     searches_by_row: dict[str, list[dict]],
     selected_row_id,
 ):
-    _searches = searches_by_row.get(selected_row_id, [])
-    mo.stop(not _searches, mo.md("⚠️ Keine Suchanfragen im Log für diese Zeile"))
+    _searches = searches_by_row.get(selected_row_id, [])
 
-    _options = {}
-    for _s in _searches:
-        _label = (
-            f"{_s.get('query_name','?')}  ·  "
-            f"{_s.get('n_results', 0)} Treffer  ·  "
-            f"`{_s.get('query') or _s.get('template','')}`"
-        )
-        _options[_label] = _s
 
-    # Pre-select the ranked winner if present
-    _ranked_name = latest_ranking.get(selected_row_id, {}).get("chosen_query_name")
-    _default_label = next(
-        (lbl for lbl, s in _options.items() if s.get("query_name") == _ranked_name),
-        next(iter(_options), None),  # fall back to first
-    )
+    mo.stop(not _searches, mo.md("⚠️ Keine Suchanfragen im Log für diese Zeile"))
 
-    query_selector = mo.ui.radio(
-        options=_options,
-        value=_default_label,
-        label="Suchanfrage wählen",
-    )
+
+    _options = {}
+
+    for _s in _searches:
+
+        _label = (
+
+            f"{_s.get('query_name','?')}  ·  "
+
+            f"{_s.get('n_results', 0)} Treffer  ·  "
+
+            f"`{_s.get('query') or _s.get('template','')}`"
+
+        )
+
+        _options[_label] = _s
+
+
+    # Pre-select the ranked winner if present
+
+    _ranked_name = latest_ranking.get(selected_row_id, {}).get("chosen_query_name")
+
+    _default_label = next(
+
+        (lbl for lbl, s in _options.items() if s.get("query_name") == _ranked_name),
+
+        next(iter(_options), None),  # fall back to first
+
+    )
+
+
+    query_selector = mo.ui.radio(
+
+        options=_options,
+
+        value=_default_label,
+
+        label="Suchanfrage wählen",
+
+    )
+
     mo.vstack([mo.md("### Suchanfragen"), query_selector])
     return (query_selector,)
 
@@ -211,24 +281,32 @@ def _(query_selector):
 
 
 @app.cell
-def _(judgments_by_row_ppn, mo, ppns_for_query, selected_row_id):
-    mo.stop(not ppns_for_query, mo.md("*Keine PPNs für diese Anfrage*"))
+def _(
+    get_manual_ppns,
+    judgments_by_row_ppn,
+    mo,
+    ppns_for_query,
+    selected_row_id,
+):
+    _manual = get_manual_ppns()
+    _all_ppns = list(dict.fromkeys(ppns_for_query + _manual))
+    mo.stop(not _all_ppns, mo.md("*Keine PPNs für diese Anfrage*"))
 
     def _ppn_label(ppn: str) -> str:
         key = (selected_row_id, ppn)
         j = judgments_by_row_ppn.get(key)
+        _tag = " 🔍" if ppn in _manual and ppn not in ppns_for_query else ""
         if j:
             verdict = j.get("verdict", "?")
             conf = j.get("confidence", "?")
             by = j.get("judged_by", "?")
             emoji = {"accept": "✅", "reject": "❌", "uncertain": "❓"}.get(verdict, "❔")
             reasoning = j.get("reasoning")
-            return f"{ppn}  {emoji} {verdict} ({conf}) · {by}:   {reasoning}"
-        return ppn
+            return f"{ppn}{_tag}  {emoji} {verdict} ({conf}) · {by}:   {reasoning}"
+        return f"{ppn}{_tag}"
 
-    _options = {_ppn_label(p): p for p in ppns_for_query}
+    _options = {_ppn_label(p): p for p in _all_ppns}
     ppn_selector = mo.ui.radio(options=_options, label="PPN auswählen")
-
     mo.vstack([mo.md("### PPNs"), ppn_selector])
     return (ppn_selector,)
 
@@ -280,7 +358,6 @@ def _(mo):
 
 
     mo.vstack([mo.md("### Entscheidung"), verdict_selector])
-
     return (verdict_selector,)
 
 
@@ -293,7 +370,6 @@ def _(mo, save_btn):
             full_width=True,
         )
     note_input
-
     return (note_input,)
 
 
@@ -306,20 +382,19 @@ def _(mo):
 
 @app.cell
 def _(
-    Path,
     datetime,
-    json,
     mo,
     note_input,
-    output_path_input,
     save_btn,
     selected_ppn,
     selected_row_id,
+    set_log,
     timezone,
     verdict_selector,
 ):
     mo.stop(not save_btn.value)
     mo.stop(not selected_ppn, mo.callout(mo.md("⚠️ Keine PPN ausgewählt"), kind="warn"))
+
     _event = {
         "row_id": selected_row_id,
         "step": "judgment",
@@ -329,23 +404,16 @@ def _(
         "note": note_input.value or None,
         "ts": datetime.now(timezone.utc).isoformat(),
     }
-    _out = Path(output_path_input.value)
-    with _out.open("a", encoding="utf-8") as _fh:
-        _fh.write(json.dumps(_event, ensure_ascii=False) + "\n")
-        _fh.flush()
-
-    mo.md(f"✅ PPN {selected_ppn} → **{verdict_selector.value}** (Zeile {selected_row_id})")
+    set_log(lambda events: events + [_event])
+    mo.md(f"✅ PPN `{selected_ppn}` → **{verdict_selector.value}** (Zeile {selected_row_id})")
     return
 
 
 @app.cell
-def _(mo, selected_ppn):
-    import urllib.request as _urllib
-    import urllib.parse as _urllib_parse
-
+def _(mo, selected_ppn, urllib):
     mo.stop(not selected_ppn)
 
-    _params = _urllib_parse.urlencode({
+    _params = urllib.parse.urlencode({
         "version": "1.1",
         "operation": "searchRetrieve",
         "recordSchema": "marcxml",
@@ -355,7 +423,7 @@ def _(mo, selected_ppn):
     _url = f"https://sru.k10plus.de/opac-de-1?{_params}"
 
     try:
-        with _urllib.urlopen(_url, timeout=10) as _resp:
+        with urllib.request.urlopen(_url, timeout=10) as _resp:
             record_xml = _resp.read().decode("utf-8")
     except Exception as _e:
         record_xml = None
@@ -366,13 +434,11 @@ def _(mo, selected_ppn):
 
 
 @app.cell
-def _(mo, record_xml):
-    import xml.etree.ElementTree as _ET
-
+def _(ET, mo, record_xml):
     mo.stop(not record_xml)
 
     _NS = {"marc": "http://www.loc.gov/MARC21/slim"}
-    _root = _ET.fromstring(record_xml)
+    _root = ET.fromstring(record_xml)
 
     _items = []
     for _field in _root.findall(".//marc:datafield[@tag='924']", _NS):
@@ -395,7 +461,6 @@ def _(mo, record_xml):
         label="Exemplar wählen",
         )
     item_selector
-
     return (item_selector,)
 
 
@@ -435,21 +500,20 @@ def _(item_selector):
 
 @app.cell
 def _(
-    Path,
     datetime,
     item_note_input,
     item_save_btn,
     item_verdict_selector,
-    json,
     mo,
-    output_path_input,
     selected_item,
     selected_ppn,
     selected_row_id,
+    set_log,
     timezone,
 ):
     mo.stop(not item_save_btn.value)
     mo.stop(not selected_item, mo.callout(mo.md("⚠️ Kein Exemplar ausgewählt"), kind="warn"))
+
     _event = {
         "row_id": selected_row_id,
         "step": "judgment_item",
@@ -461,12 +525,40 @@ def _(
         "note": item_note_input.value or None,
         "ts": datetime.now(timezone.utc).isoformat(),
     }
-    _out = Path(output_path_input.value)
-    with _out.open("a", encoding="utf-8") as _fh:
-        _fh.write(json.dumps(_event, ensure_ascii=False) + "\n")
-        _fh.flush()
-
+    set_log(lambda events: events + [_event])
     mo.md(f"✅ EPN `{selected_item['epn']}` · {selected_item['shelfmark']} → **{item_verdict_selector.value}** (Zeile {selected_row_id})")
+    return
+
+
+@app.cell
+def _(datetime, get_log, json, mo, timezone):
+    _content = "\n".join(json.dumps(e, ensure_ascii=False) for e in get_log())
+    mo.vstack([
+        mo.md("## Log herunterladen"),
+        mo.md(f"*{len(get_log())} Einträge*"),
+        mo.download(
+            data=_content.encode("utf-8"),
+            filename=f"review_{datetime.now(timezone.utc).isoformat()}.jsonl",
+            mimetype="application/jsonl",
+            label="⬇️ Log herunterladen",
+        ),
+    ])
+    return
+
+
+@app.cell
+def _(mo):
+    reset_btn = mo.ui.run_button(label="Log zurücksetzen", kind="danger")
+    reset_btn
+
+    return (reset_btn,)
+
+
+@app.cell
+def _(mo, reset_btn, set_log):
+    mo.stop(not reset_btn.value)
+    set_log([])
+    mo.md("🗑️ Log zurückgesetzt")
     return
 
 
