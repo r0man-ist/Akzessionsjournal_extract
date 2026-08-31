@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Python
+**/__pycache__/
+*.egg-info/
+dist/
+
+# Marimo
+**/__marimo__/
+
+# Data & logs
+data/
+**.jsonl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual env
+.venv/
+venv/
