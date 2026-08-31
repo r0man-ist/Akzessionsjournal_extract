@@ -99,3 +99,23 @@ All steps append to the same JSONL log file. Each line is one event with
 a `step` field (`sru_search`, `ranking`, `judgment`, etc.), a `row_id`,
 a `run_id`, and a timestamp. This makes every run fully resumable and
 auditable.
+
+## Human Review
+
+`notebooks/accessionsjournal.py` is an interactive [marimo](https://marimo.io)
+notebook for manually reviewing and correcting the LLM's judgments. Load a structured 
+CSV and the pipeline's JSONL log, step
+through rows, inspect the search queries and LLM reasoning behind each
+candidate PPN, open the catalogue record inline, and record a human verdict
+(`accept` / `reject` / `uncertain`). Verdicts are appended as `judgment`
+events to a separate output JSONL, leaving the original pipeline log
+untouched.
+
+```bash
+pip install -e ".[notebooks]"
+marimo edit notebooks/accessionsjournal.py
+```
+
+CSV and JSONL inputs are provided through file uploads in the notebook UI,
+not hardcoded paths. It only talks to the public k10plus/stabikat SRU
+endpoints — no API key required.
