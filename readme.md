@@ -112,7 +112,6 @@ events to a separate output JSONL, leaving the original pipeline log
 untouched.
 
 ```bash
-pip install -e ".[notebooks]"
 marimo edit notebooks/accessionsjournal.py
 ```
 
