@@ -1,6 +1,6 @@
-# Bibliographic Matching Pipeline
+# Bibliographic Extraction and Matching Pipeline
 
-A pipeline for matching bibliographic references against library catalogues
+A pipeline for matching bibliographic references in accession journals against library catalogues
 using SRU search, candidate ranking, and LLM-based judgment.
 
 ## Pipeline Overview
