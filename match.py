@@ -117,6 +117,22 @@ def main():
     df = pd.read_csv(args.input_csv, sep=args.sep, dtype=str)
     df = df.where(pd.notna(df), None)  # replace all NaN with None, DataFrame-wide
 
+    # check for duplicate values in the UID column
+    dupes = df[df[args.uid_col].duplicated(keep=False)]
+    if not dupes.empty:
+        raise SystemExit(
+            f"Duplicate values in UID column '{args.uid_col}':\n"
+            + dupes[[args.uid_col]].to_string(index=False)
+        )
+
+    # check for empty values in the UID column
+    missing = df[df[args.uid_col].isna() | (df[args.uid_col].str.strip() == "")]
+    if not missing.empty:
+        raise SystemExit(
+            f"Empty values in UID column '{args.uid_col}' at rows: "
+            + str(missing.index.tolist())
+        )
+    
     with EventLogger(args.output_jsonl) as logger:
         skip_done = logger.already_done()
         run_batch(df, args.query, catalogue=args.catalogue, logger=logger,
