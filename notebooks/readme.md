@@ -27,15 +27,15 @@ leaving the original pipeline log untouched.
 The notebook exports judgment events in the same JSONL format as the pipeline.
 To merge, append the review log to your pipeline log:
 
+
 ```bash
-cat abgleich_log.jsonl review_2026-09-04T....jsonl >> merged_log.jsonl
+cat abgleich_log.jsonl review_2026-09-04T....jsonl > merged_log.jsonl
 ```
 
-Or non-destructively:
+Neither source file is modified. If you want to merge in place instead:
 
 ```bash
-cp abgleich_log.jsonl merged_log.jsonl
-cat review_2026-09-04T....jsonl >> merged_log.jsonl
+cat review_2026-09-04T....jsonl >> abgleich_log.jsonl
 ```
 
 **Why this is safe:**
