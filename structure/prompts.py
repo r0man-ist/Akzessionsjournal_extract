@@ -141,7 +141,7 @@ Output:
   "publication_place_normalized": "Leyden",
   "publisher": null,
   "edition": null,
-  "language": "Malay",
+  "language": "Dutch",
   "volume": null,
   "physical_format": null,
   "publication_year": "1795-1803",
