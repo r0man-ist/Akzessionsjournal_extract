@@ -108,7 +108,7 @@ def main():
     parser.add_argument("--year-col", default=None,
                          help="Column holding a year or range, normalized via normalize_years, "
                               "available in templates as {!Jahr_CQL}")
-    parser.add_argument("--uid-col", default="Nr")
+    parser.add_argument("--uid-col", default="Lfd. Nr.")
     args = parser.parse_args()
 
     if not args.query:
