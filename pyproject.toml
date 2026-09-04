@@ -17,6 +17,10 @@ dependencies = [
 notebooks = [
     "marimo",
 ]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
 
 [tool.uv]
 package = false
