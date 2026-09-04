@@ -38,10 +38,10 @@ def ocr_page_to_df(page: OcrPage, source_image: str, source_url: str = "") -> pd
 
 
 def validate(df: pd.DataFrame) -> None:
-    """
-    Sanity checks on the stitched CSV. Prints warnings; does not raise,
-    so a full run always produces output for manual review.
-    """
+    if "accession_no" not in df.columns:
+        print("[WARN] 'accession_no' column not found in output — skipping validation.")
+        return
+
     numeric_acc = pd.to_numeric(df["accession_no"], errors="coerce")
 
     dupes = df[numeric_acc.duplicated(keep=False) & numeric_acc.notna()]
