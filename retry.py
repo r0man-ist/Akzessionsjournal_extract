@@ -35,18 +35,19 @@ def latest_ranking_events(jsonl_path: Path) -> dict[str, dict]:
     return latest
 
 
-def retry_count(jsonl_path: Path, row_id: str) -> int:
-    """How many LLM-triggered retry searches have already run for this row."""
-    count = 0
+def all_retry_counts(jsonl_path: Path) -> dict[str, int]:
+    """Pre-compute retry counts for all rows in one pass."""
+    counts: dict[str, int] = {}
     with open(jsonl_path, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
             e = json.loads(line)
-            if (e.get("row_id") == row_id and e.get("step") == "sru_search"
+            if (e.get("step") == "sru_search"
                     and e.get("triggered_by") == "llm_retry"):
-                count += 1
-    return count
+                row_id = e["row_id"]
+                counts[row_id] = counts.get(row_id, 0) + 1
+    return counts
 
 
 def format_attempts(jsonl_path: Path, row_id: str) -> str:
@@ -122,6 +123,7 @@ def main():
 
     rankings = latest_ranking_events(args.input_jsonl)
     judgments = row_judgment_summary(args.input_jsonl)
+    retry_counts = all_retry_counts(args.input_jsonl)
 
     with EventLogger(args.input_jsonl) as event_logger:
         for _, row in df.iterrows():
@@ -131,7 +133,7 @@ def main():
             if not needs_retry(row_id, ranking, judgments):
                 continue
 
-            if retry_count(args.input_jsonl, row_id) >= MAX_LLM_RETRIES_PER_ROW:
+            if retry_counts.get(row_id, 0) >= MAX_LLM_RETRIES_PER_ROW:
                 event_logger.log(row_id, "retry_exhausted", note="max LLM retries reached")
                 continue
 
