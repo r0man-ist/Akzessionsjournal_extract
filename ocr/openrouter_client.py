@@ -1,21 +1,16 @@
-"""
-openrouter_client.py
-
-Thin client wrapper around the OpenRouter chat completions API for
-vision-capable prompting (image + text -> text).
-"""
-
+# ocr/openrouter_client.py
 import base64
 import mimetypes
 from pathlib import Path
 
-import requests
+from openai import OpenAI
 
 import ocr.config as config
+from ocr.models import OcrPage
+from utils.llm import build_client, response_format
 
 
 def _encode_image(image_path: Path) -> str:
-    """Return a base64 data URI for the given image file."""
     mime_type, _ = mimetypes.guess_type(str(image_path))
     if mime_type is None:
         mime_type = "image/jpeg"
@@ -23,52 +18,36 @@ def _encode_image(image_path: Path) -> str:
     return f"data:{mime_type};base64,{data}"
 
 
-def transcribe_page(image_path: Path, prompt_text: str) -> str:
+def transcribe_page(image_path: Path, prompt_text: str) -> OcrPage:
     if not config.OPENROUTER_API_KEY:
         raise RuntimeError(
             "OPENROUTER_API_KEY is not set. Export it or add it to your .env file."
         )
 
-    image_data_uri = _encode_image(image_path)
+    client = build_client(config.OPENROUTER_BASE_URL, timeout=180)
 
-    payload = {
-        "model": config.MODEL,
-        "temperature": config.TEMPERATURE,
-        "max_tokens": config.MAX_TOKENS,
-        "reasoning": {
-        "effort": "low" 
-        },
-        "messages": [
+    response = client.chat.completions.create(
+        model=config.MODEL,
+        temperature=config.TEMPERATURE,
+        max_tokens=config.MAX_TOKENS,
+        response_format=response_format(OcrPage, "OcrPage"),
+        extra_body={"reasoning": config.REASONING},
+        messages=[
             {
                 "role": "user",
                 "content": [
                     {"type": "text", "text": prompt_text},
-                    {"type": "image_url", "image_url": {"url": image_data_uri}},
+                    {"type": "image_url", "image_url": {"url": _encode_image(image_path)}},
                 ],
             }
         ],
-    }
-
-    headers = {
-        "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    response = requests.post(
-        f"{config.OPENROUTER_BASE_URL}/chat/completions",
-        json=payload,
-        headers=headers,
-        timeout=180,
     )
-    response.raise_for_status()
 
-    data = response.json()
-
-    choice = data["choices"][0]
-    finish_reason = choice.get("finish_reason", "unknown")
-    usage = data.get("usage", {})
+    finish_reason = response.choices[0].finish_reason
+    usage = response.usage
     print(f"  finish_reason={finish_reason}  usage={usage}")
     if finish_reason == "length":
         print("  [WARN] Response was cut off by max_tokens — increase config.MAX_TOKENS")
 
-    return choice["message"]["content"]
+    content = response.choices[0].message.content
+    return OcrPage.model_validate_json(content)
