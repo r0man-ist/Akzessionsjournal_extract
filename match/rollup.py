@@ -22,9 +22,11 @@ def row_judgment_summary(jsonl_path: Path) -> dict[str, dict]:
 
 
 def needs_retry(row_id: str, ranking: dict | None, judgments: dict) -> bool:
-    if ranking is None or ranking.get("status") != "ok":
-        return True  # no_candidates
+    if ranking is None:
+        return False  # not yet ranked — not a retry case
+    if ranking.get("status") != "ok":
+        return True   # ranked but no candidates found
     j = judgments.get(row_id)
     if j is None:
-        return False  # not judged yet — not a retry case, just not processed
-    return len(j["accepted_ppns"]) == 0  # nothing accepted -> retry
+        return False  # ranked and has candidates, but not yet judged
+    return len(j["accepted_ppns"]) == 0  # judged but nothing accepted
