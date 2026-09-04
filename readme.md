@@ -16,6 +16,9 @@ python ocr.py
 
 Input/output paths are configured in `ocr/config.py`.
 
+Resume-safe (checks if raw .json-files exist and skips); but will rewrite the combined csv.
+For adding URLs to Digitized Collections a IIIF-manifest (filename containing "*manifest*.json") needs to be present in the Input_dir.
+
 ### 2. Structure (`structure.py`)
 Parses raw bibliographic reference strings into structured fields
 (title, author, year, place, etc.) using an LLM.
