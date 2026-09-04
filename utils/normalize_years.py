@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Union
 
 _YEAR_RE = re.compile(r"^\s*(\d{4})\s*$")
 _RANGE_RE = re.compile(r"^\s*(\d{4})\s*[-–—]\s*(\d{2}|\d{4})\s*$")
-
+_MULTI_RE = re.compile(r"^\s*(\d{4})\s*(?:[,/]\s*(\d{2}|\d{4})\s*)+$")
 
 class YearParseError(ValueError):
     """Raised when a year value cannot be parsed."""
@@ -90,6 +90,26 @@ def parse_year_value(value: Any) -> List[int]:
             start_year = int(m.group(1))
             end_token = m.group(2)
             return _expand_range(start_year, end_token)
+
+        m = _MULTI_RE.match(value)
+        if m:
+            tokens = re.split(r"[,/]", value)
+            start_year = int(tokens[0].strip())
+            seen = set()
+            years = [start_year]
+            seen.add(start_year)
+            for token in tokens[1:]:
+                token = token.strip()
+                if len(token) == 2:
+                    year = (start_year // 100) * 100 + int(token)
+                    if year < start_year:
+                        year += 100
+                else:
+                    year = int(token)
+                if year not in seen:
+                    seen.add(year)
+                    years.append(year)
+            return years
 
         raise YearParseError(f"Unparsable year value: {value!r}")
 
