@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.21.1"
+__generated_with = "0.24.1"
 app = marimo.App(width="full")
 
 
@@ -146,6 +146,10 @@ def _(events_by_row: dict[str, list[dict]], mo, selected_row_id):
             parts.append(f"PPN: `{e['ppn']}`")
         if e.get("step") == "retry_diagnosis" and e.get("failure_reason"):
             parts.append(f" {e['failure_reason']}")
+        if e.get("shelfmark"):
+            parts.append(f"Signatur: {e['shelfmark']}")
+        if e.get("note"):
+            parts.append(f"Notiz: {e['note']}")
         return "  ".join(parts)
 
     _lines = [f"- {_fmt_event(e)}" for e in _events]
@@ -532,7 +536,7 @@ def _(
 
 @app.cell
 def _(datetime, get_log, json, mo, timezone):
-    _content = "\n".join(json.dumps(e, ensure_ascii=False) for e in get_log())
+    _content = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in get_log())
     mo.vstack([
         mo.md("## Log herunterladen"),
         mo.md(f"*{len(get_log())} Einträge*"),
@@ -550,7 +554,6 @@ def _(datetime, get_log, json, mo, timezone):
 def _(mo):
     reset_btn = mo.ui.run_button(label="Log zurücksetzen", kind="danger")
     reset_btn
-
     return (reset_btn,)
 
 
