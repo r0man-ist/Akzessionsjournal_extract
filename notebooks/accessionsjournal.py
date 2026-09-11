@@ -15,8 +15,22 @@ def _():
     import urllib.request
     import urllib.parse
     import xml.etree.ElementTree as ET
+    import anywidget
+    import traitlets
 
-    return ET, datetime, defaultdict, io, json, mo, pd, timezone, urllib
+    return (
+        ET,
+        anywidget,
+        datetime,
+        defaultdict,
+        io,
+        json,
+        mo,
+        pd,
+        timezone,
+        traitlets,
+        urllib,
+    )
 
 
 @app.cell
@@ -575,42 +589,39 @@ def _(mo, reset_btn, selected_row_id, set_log):
 
 
 @app.cell
-def _(mo):
-    autosave_timer = mo.ui.refresh(default_interval="60s")
-    autosave_timer
-    return (autosave_timer,)
+def _(anywidget, mo, traitlets):
+    class UnsavedChangesGuard(anywidget.AnyWidget):
+        _esm = """
+        function render({ model, el }) {
+            function updateGuard() {
+                if (model.get("has_unsaved")) {
+                    if (!window.__unsavedGuardHandler) {
+                        window.__unsavedGuardHandler = function (e) {
+                            e.preventDefault();
+                            e.returnValue = '';
+                        };
+                        window.addEventListener('beforeunload', window.__unsavedGuardHandler);
+                    }
+                } else if (window.__unsavedGuardHandler) {
+                    window.removeEventListener('beforeunload', window.__unsavedGuardHandler);
+                    window.__unsavedGuardHandler = null;
+                }
+            }
+            model.on("change:has_unsaved", updateGuard);
+            updateGuard();
+            el.style.display = "none";
+        }
+        export default { render };
+        """
+        has_unsaved = traitlets.Bool(False).tag(sync=True)
+
+    guard = mo.ui.anywidget(UnsavedChangesGuard())
+    return (guard,)
 
 
 @app.cell
-def _(autosave_timer, get_log, mo):
-    _ = autosave_timer.value  # dependency: reruns this cell every tick
-
-    _n = len(get_log())
-    mo.callout(
-            mo.md(f"⚠️ {_n} ungespeicherte Urteile — Log jetzt herunterladen, bevor die Sitzung endet!"),
-            kind="warn",
-        ) if _n >= 5 else mo.md(f"💾 {_n} Urteil(e) seit letztem Download")
-    return
-
-
-@app.cell
-def _(get_log, mo):
-    _has_unsaved = len(get_log()) > 0
-
-    mo.Html(f"""
-    <script>
-    window.__hasUnsavedChanges = {str(_has_unsaved).lower()};
-    if (!window.__beforeUnloadRegistered) {{
-        window.__beforeUnloadRegistered = true;
-        window.addEventListener('beforeunload', function (e) {{
-            if (window.__hasUnsavedChanges) {{
-                e.preventDefault();
-                e.returnValue = '';
-            }}
-        }});
-    }}
-    </script>
-    """)
+def _(get_log, guard):
+    guard.widget.has_unsaved = len(get_log()) > 0
     return
 
 
