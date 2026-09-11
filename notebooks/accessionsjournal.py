@@ -593,22 +593,20 @@ def _(anywidget, mo, traitlets):
     class UnsavedChangesGuard(anywidget.AnyWidget):
         _esm = """
         function render({ model, el }) {
-            function updateGuard() {
-                if (model.get("has_unsaved")) {
-                    if (!window.__unsavedGuardHandler) {
-                        window.__unsavedGuardHandler = function (e) {
-                            e.preventDefault();
-                            e.returnValue = '';
-                        };
-                        window.addEventListener('beforeunload', window.__unsavedGuardHandler);
+            function actuallyArm() {
+                if (window.__unsavedGuardArmed) return;
+                window.__unsavedGuardArmed = true;
+                window.addEventListener('beforeunload', function (e) {
+                    if (model.get("has_unsaved")) {
+                        e.preventDefault();
+                        e.returnValue = '';
                     }
-                } else if (window.__unsavedGuardHandler) {
-                    window.removeEventListener('beforeunload', window.__unsavedGuardHandler);
-                    window.__unsavedGuardHandler = null;
-                }
+                });
+                window.removeEventListener('click', actuallyArm);
+                window.removeEventListener('keydown', actuallyArm);
             }
-            model.on("change:has_unsaved", updateGuard);
-            updateGuard();
+            window.addEventListener('click', actuallyArm);
+            window.addEventListener('keydown', actuallyArm);
             el.style.display = "none";
         }
         export default { render };
