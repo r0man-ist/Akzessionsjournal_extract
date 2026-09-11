@@ -348,7 +348,8 @@ def _(mo, selected_ppn):
 
 
 @app.cell
-def _(mo):
+def _(mo, ppn_selector):
+    _reset = ppn_selector.value  # forces re-run when ppn changes
     verdict_selector = mo.ui.radio(
             options={
                 "✅  Treffer bestätigen": "accept",
@@ -366,8 +367,8 @@ def _(mo):
 
 
 @app.cell
-def _(mo, save_btn):
-    _x = save_btn.value  # dependency on save_btn forces re-run on click
+def _(mo, ppn_selector):
+    _reset = ppn_selector.value  # forces re-run when ppn changes
     note_input = mo.ui.text(
             placeholder="Optionale Anmerkung …",
             label="Notiz",
@@ -472,8 +473,8 @@ def _(ET, mo, record_xml):
 
 
 @app.cell
-def _(item_save_btn, mo):
-    _x = item_save_btn.value  # dependency on save_btn forces re-run on click
+def _(item_selector, mo):
+    _reset = item_selector.value  # forces re-run when item changes
     item_verdict_selector = mo.ui.radio(
     options={
         "✅  Treffer bestätigen": "accept",
@@ -565,7 +566,8 @@ def _(mo):
 
 
 @app.cell
-def _(mo, reset_btn, set_log):
+def _(mo, reset_btn, selected_row_id, set_log):
+    _reset = selected_row_id  # forces re-run when row changes
     mo.stop(not reset_btn.value)
     set_log([])
     mo.md("🗑️ Log zurückgesetzt")
