@@ -355,7 +355,7 @@ def _(mo):
                 "❌  Treffer ablehnen": "reject",
                 "❓  Unsicher": "uncertain",
             },
-            value="✅  Treffer bestätigen",
+            value=None,
             label="Urteil",
             inline=True,
         )
@@ -398,7 +398,10 @@ def _(
 ):
     mo.stop(not save_btn.value)
     mo.stop(not selected_ppn, mo.callout(mo.md("⚠️ Keine PPN ausgewählt"), kind="warn"))
-
+    mo.stop(
+            verdict_selector.value is None,
+            mo.callout(mo.md("⚠️ Bitte ein Urteil auswählen, bevor gespeichert wird."), kind="warn"),
+        )
     _event = {
         "row_id": selected_row_id,
         "step": "judgment",
@@ -469,14 +472,15 @@ def _(ET, mo, record_xml):
 
 
 @app.cell
-def _(mo):
+def _(item_save_btn, mo):
+    _x = item_save_btn.value  # dependency on save_btn forces re-run on click
     item_verdict_selector = mo.ui.radio(
     options={
         "✅  Treffer bestätigen": "accept",
         "❌  Treffer ablehnen": "reject",
         "❓  Unsicher": "uncertain",
     },
-    value="✅  Treffer bestätigen",
+        value=None,
     label="Exemplar-Urteil",
     inline=True,
     )
@@ -517,7 +521,10 @@ def _(
 ):
     mo.stop(not item_save_btn.value)
     mo.stop(not selected_item, mo.callout(mo.md("⚠️ Kein Exemplar ausgewählt"), kind="warn"))
-
+    mo.stop(
+            item_verdict_selector.value is None,
+            mo.callout(mo.md("⚠️ Bitte ein Urteil auswählen, bevor gespeichert wird."), kind="warn"),
+        )
     _event = {
         "row_id": selected_row_id,
         "step": "judgment_item",
