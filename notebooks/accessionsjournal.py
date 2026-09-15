@@ -109,7 +109,13 @@ def _(defaultdict, io, json, mo, upload_jsonl):
         (e for e in all_events if e.get("step") == "judgment"),
         key_fn=lambda e: (e["row_id"], e.get("ppn")) if e.get("ppn") else None,
     )
-    return events_by_row, judgments_by_row_ppn, latest_ranking, searches_by_row
+    return (
+        all_events,
+        events_by_row,
+        judgments_by_row_ppn,
+        latest_ranking,
+        searches_by_row,
+    )
 
 
 @app.cell
@@ -589,28 +595,159 @@ def _(mo, reset_btn, selected_row_id, set_log):
 
 @app.cell
 def _(anywidget, mo):
-    class UnsavedChangesGuard(anywidget.AnyWidget):
-        _esm = """
-        function render({ el }) {
-            function actuallyArm() {
-                if (window.__unsavedGuardArmed) return;
-                window.__unsavedGuardArmed = true;
-                window.addEventListener('beforeunload', function (e) {
-                    e.preventDefault();
-                    e.returnValue = '';
-                });
-                window.removeEventListener('click', actuallyArm);
-                window.removeEventListener('keydown', actuallyArm);
-            }
-            window.addEventListener('click', actuallyArm);
-            window.addEventListener('keydown', actuallyArm);
-            el.style.display = "none";
-        }
-        export default { render };
-        """
+    class UnsavedChangesGuard(anywidget.AnyWidget):
 
-    guard = mo.ui.anywidget(UnsavedChangesGuard())
+        _esm = """
+        function render({ el }) {
+            function actuallyArm() {
+                if (window.__unsavedGuardArmed) return;
+                window.__unsavedGuardArmed = true;
+                window.addEventListener('beforeunload', function (e) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                });
+                window.removeEventListener('click', actuallyArm);
+                window.removeEventListener('keydown', actuallyArm);
+            }
+            window.addEventListener('click', actuallyArm);
+            window.addEventListener('keydown', actuallyArm);
+            el.style.display = "none";
+        }
+        export default { render };
+        """
+    guard = mo.ui.anywidget(UnsavedChangesGuard())
     guard
+    return
+
+
+@app.cell
+def _(
+    all_events: list[dict],
+    defaultdict,
+    df,
+    judgments_by_row_ppn,
+    latest_ranking,
+    mo,
+    searches_by_row: dict[str, list[dict]],
+):
+    _row_ids = [str(r) for r in df["Lfd. Nr."]]
+    _n = len(_row_ids)
+
+    def _pct_of(x, base):
+        return f"{100 * x / base:.1f}%" if base else "–"
+
+    # 1) Titel gefunden vs. keine gefunden -------------------------------
+    # "gefunden" verlangt zusätzlich, dass der beste Kandidat als plausibel
+    # eingestuft wurde (rank.py: plausible = n_results > 0 and n_results <=
+    # expected * tolerance). Bei Retry-Erfolgen fehlt der "plausible"-Key
+    # ganz (retry.py loggt ihn nicht) -- solche Zeilen sollen trotzdem
+    # zählen, daher "is not False" statt "is True".
+    _ok_rows = {rid for rid in _row_ids if latest_ranking.get(rid, {}).get("status") == "ok"}
+    _found_rows = {
+        rid for rid in _ok_rows
+        if latest_ranking.get(rid, {}).get("plausible") is not False
+    }
+    _found_implausible_rows = _ok_rows - _found_rows
+    _none_found_rows = set(_row_ids) - _ok_rows
+
+    _found_ppns = {
+        (rid, ppn)
+        for rid in _found_rows
+        for ppn in (latest_ranking.get(rid, {}).get("ppns") or [])
+    }
+    _found_implausible_ppns = {
+        (rid, ppn)
+        for rid in _found_implausible_rows
+        for ppn in (latest_ranking.get(rid, {}).get("ppns") or [])
+    }
+
+    # 2) davon nur via Retry-Logik gefunden -------------------------------
+    _retry_only_rows = {
+        rid for rid in _found_rows
+        if latest_ranking.get(rid, {}).get("chosen_query_name") == "llm_retry"
+    }
+    _retry_only_ppns = {
+        (rid, ppn)
+        for rid in _retry_only_rows
+        for ppn in (latest_ranking.get(rid, {}).get("ppns") or [])
+    }
+
+    # --- gemeinsame Grundlage für 3) und 5): alle judgment-Events
+    #     gruppiert nach (row_id, ppn), + letztes Urteil je Quelle ---------
+    _events_by_pair: dict[tuple, list] = defaultdict(list)
+    for _e in all_events:
+        if _e.get("step") == "judgment" and _e.get("ppn"):
+            _events_by_pair[(_e["row_id"], _e["ppn"])].append(_e)
+
+    _last_by_source_by_pair: dict[tuple, dict] = {}
+    for _pair, _evs in _events_by_pair.items():
+        _last = {}
+        for _e in sorted(_evs, key=lambda e: e.get("ts", "")):
+            _last[_e.get("judged_by", "?")] = _e.get("verdict")
+        _last_by_source_by_pair[_pair] = _last
+
+    # 3) gefundene Titel, vom LLM als "accept" bewertet --------------------
+    _llm_accept_rows = {
+        e["row_id"] for e in all_events
+        if e.get("step") == "judgment" and e.get("judged_by") == "llm" and e.get("verdict") == "accept"
+    } & _found_rows
+
+    _llm_accept_ppns = {
+        pair for pair, last in _last_by_source_by_pair.items()
+        if last.get("llm") == "accept" and pair[0] in _found_rows
+    }
+    _llm_judged_ppns_in_found = {
+        pair for pair, last in _last_by_source_by_pair.items()
+        if "llm" in last and pair[0] in _found_rows
+    }
+
+    # 4) nur durch Menschen gefunden (PPN nicht in Suchergebnissen) --------
+    _search_ppns_by_row = {
+        rid: {p for s in searches for p in s.get("ppns", [])}
+        for rid, searches in searches_by_row.items()
+    }
+    _human_only_ppns = {
+        (rid, ppn) for (rid, ppn), j in judgments_by_row_ppn.items()
+        if j.get("verdict") == "accept"
+        and j.get("judged_by") == "human"
+        and ppn not in _search_ppns_by_row.get(rid, set())
+    }
+    _human_only_rows = {rid for (rid, ppn) in _human_only_ppns}
+
+    # 5) abweichende Urteile Mensch vs. LLM ---------------------------------
+    _disagree_rows = {
+        pair[0] for pair, last in _last_by_source_by_pair.items()
+        if "llm" in last and "human" in last and last["llm"] != last["human"]
+    }
+    _disagree_ppns = {
+        pair for pair, last in _last_by_source_by_pair.items()
+        if "llm" in last and "human" in last and last["llm"] != last["human"]
+    }
+    _reviewed_ppns = {
+        pair for pair, last in _last_by_source_by_pair.items()
+        if "llm" in last and "human" in last
+    }
+    _reviewed_rows = {
+        e["row_id"] for e in all_events
+        if e.get("step") == "judgment" and e.get("judged_by") == "human"
+    }
+
+    mo.md(f"""
+    ## Statistik
+
+
+    | Kennzahl | Zeilen | Anteil (Zeilen) | PPNs | Anteil (PPNs) |
+    |---|---:|---:|---:|---:|
+    | Titel gefunden (plausibel) | {len(_found_rows)} | {_pct_of(len(_found_rows), _n)} | {len(_found_ppns)} | – |
+    | gefunden, aber unplausibel (z. B. zu viele Treffer) | {len(_found_implausible_rows)} | {_pct_of(len(_found_implausible_rows), _n)} | {len(_found_implausible_ppns)} | – |
+    | kein Titel gefunden | {len(_none_found_rows)} | {_pct_of(len(_none_found_rows), _n)} | – | – |
+    | davon nur via Retry-Logik gefunden | {len(_retry_only_rows)} | {_pct_of(len(_retry_only_rows), _n)} | {len(_retry_only_ppns)} | – |
+    | gefundene Titel von LLM als „accept" bewertet | {len(_llm_accept_rows)} | {_pct_of(len(_llm_accept_rows), _n)} | {len(_llm_accept_ppns)} | {_pct_of(len(_llm_accept_ppns), len(_llm_judged_ppns_in_found))} || nur durch Mensch gefunden (PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), len(_reviewed_rows))} | {len(_human_only_ppns)} | – |
+    | Urteil Mensch ≠ LLM | {len(_disagree_rows)} | {_pct_of(len(_disagree_rows), _n)} | {len(_disagree_ppns)} | {_pct_of(len(_disagree_ppns), len(_found_ppns))} |
+    | Nur durch manuell angepasste Suche gefunden (zusätzlich, PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), _n)} | {len(_human_only_ppns)} | – |
+
+    *Zeilen-Basis: {_n} Zeilen aus der CSV · {len(_reviewed_rows)} davon mit mind. einem menschl. Urteil.*
+    """)
     return
 
 
