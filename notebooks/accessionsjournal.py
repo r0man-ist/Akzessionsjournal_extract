@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.24.1"
+__generated_with = "0.21.1"
 app = marimo.App(width="full")
 
 
@@ -28,7 +28,6 @@ def _():
         mo,
         pd,
         timezone,
-        traitlets,
         urllib,
     )
 
@@ -589,37 +588,29 @@ def _(mo, reset_btn, selected_row_id, set_log):
 
 
 @app.cell
-def _(anywidget, mo, traitlets):
-    class UnsavedChangesGuard(anywidget.AnyWidget):
-        _esm = """
-        function render({ model, el }) {
-            function actuallyArm() {
-                if (window.__unsavedGuardArmed) return;
-                window.__unsavedGuardArmed = true;
-                window.addEventListener('beforeunload', function (e) {
-                    if (model.get("has_unsaved")) {
-                        e.preventDefault();
-                        e.returnValue = '';
-                    }
-                });
-                window.removeEventListener('click', actuallyArm);
-                window.removeEventListener('keydown', actuallyArm);
-            }
-            window.addEventListener('click', actuallyArm);
-            window.addEventListener('keydown', actuallyArm);
-            el.style.display = "none";
-        }
-        export default { render };
-        """
-        has_unsaved = traitlets.Bool(False).tag(sync=True)
+def _(anywidget, mo):
+    class UnsavedChangesGuard(anywidget.AnyWidget):
+        _esm = """
+        function render({ el }) {
+            function actuallyArm() {
+                if (window.__unsavedGuardArmed) return;
+                window.__unsavedGuardArmed = true;
+                window.addEventListener('beforeunload', function (e) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                });
+                window.removeEventListener('click', actuallyArm);
+                window.removeEventListener('keydown', actuallyArm);
+            }
+            window.addEventListener('click', actuallyArm);
+            window.addEventListener('keydown', actuallyArm);
+            el.style.display = "none";
+        }
+        export default { render };
+        """
 
-    guard = mo.ui.anywidget(UnsavedChangesGuard())
-    return (guard,)
-
-
-@app.cell
-def _(get_log, guard):
-    guard.widget.has_unsaved = len(get_log()) > 0
+    guard = mo.ui.anywidget(UnsavedChangesGuard())
+    guard
     return
 
 
