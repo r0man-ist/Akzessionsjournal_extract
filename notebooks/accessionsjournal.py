@@ -648,11 +648,6 @@ def _(
         for ppn in (latest_ranking.get(rid, {}).get("ppns") or [])
     }
 
-    _found_implausible_ppns = {
-        (rid, ppn)
-        for rid in _found_implausible_rows
-        for ppn in (latest_ranking.get(rid, {}).get("ppns") or [])
-    }
 
 
     # 2) davon nur via Retry-Logik gefunden -------------------------------
@@ -711,14 +706,14 @@ def _(
         for rid, searches in searches_by_row.items()
     }
 
-    _human_only_ppns = {
+    human_only_ppns = {
         (rid, ppn) for (rid, ppn), j in judgments_by_row_ppn.items()
         if j.get("verdict") == "accept"
         and j.get("judged_by") == "human"
         and ppn not in _search_ppns_by_row.get(rid, set())
     }
 
-    _human_only_rows = {rid for (rid, ppn) in _human_only_ppns}
+    _human_only_rows = {rid for (rid, ppn) in human_only_ppns}
 
 
     # 5) abweichende Urteile Mensch vs. LLM ---------------------------------
@@ -750,16 +745,15 @@ def _(
     |  | Zeilen | Anteil (Zeilen) | PPNs | Anteil (PPNs) |
     |---|---:|---:|---:|---:|
     | Titel gefunden (plausibel) | {len(_found_rows)} | {_pct_of(len(_found_rows), _n)} | {len(_found_ppns)} | – |
-    | gefunden, aber unplausibel (z. B. zu viele Treffer) | {len(_found_implausible_rows)} | {_pct_of(len(_found_implausible_rows), _n)} | {len(_found_implausible_ppns)} | – |
-    | kein Titel gefunden | {len(_none_found_rows)} | {_pct_of(len(_none_found_rows), _n)} | – | – |
     | davon nur via Retry-Logik gefunden | {len(_retry_only_rows)} | {_pct_of(len(_retry_only_rows), _n)} | {len(_retry_only_ppns)} | – |
-    | gefundene Titel von LLM als „accept" bewertet | {len(_llm_accept_rows)} | {_pct_of(len(_llm_accept_rows), _n)} | {len(_llm_accept_ppns)} | {_pct_of(len(_llm_accept_ppns), len(_llm_judged_ppns_in_found))} || nur durch Mensch gefunden (PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), len(_reviewed_rows))} | {len(_human_only_ppns)} | – |
+    | kein Titel gefunden | {len(_none_found_rows)} | {_pct_of(len(_none_found_rows), _n)} | – | – |
+    | gefundene Titel von LLM als „accept" bewertet | {len(_llm_accept_rows)} | {_pct_of(len(_llm_accept_rows), _n)} | {len(_llm_accept_ppns)} | {_pct_of(len(_llm_accept_ppns), len(_llm_judged_ppns_in_found))} || nur durch Mensch gefunden (PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), len(_reviewed_rows))} | {len(human_only_ppns)} | – |
     | Urteil Mensch ≠ LLM | {len(_disagree_rows)} | {_pct_of(len(_disagree_rows), _n)} | {len(_disagree_ppns)} | {_pct_of(len(_disagree_ppns), len(_found_ppns))} |
-    | Nur durch manuell angepasste Suche gefunden (zusätzlich, PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), _n)} | {len(_human_only_ppns)} | – |
+    | Nur durch manuell angepasste Suche gefunden (zusätzlich, PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), _n)} | {len(human_only_ppns)} | – |
     *Zeilen-Basis: {_n} Zeilen aus der CSV · {len(_reviewed_rows)} davon mit mind. einem menschl. Urteil.*
 
     """)
-    return events_by_pair, last_by_source_by_pair
+    return events_by_pair, human_only_ppns, last_by_source_by_pair
 
 
 @app.cell
@@ -799,6 +793,61 @@ def _(
     mo.vstack([
         mo.md(f"### Urteil Mensch ≠ LLM · {disagree_df['Lfd. Nr.'].nunique()} Zeilen / {len(disagree_df)} PPNs"),
         mo.ui.table(disagree_df, selection=None),
+    ])
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _(
+    all_events: list[dict],
+    df,
+    human_only_ppns,
+    judgments_by_row_ppn,
+    mo,
+    pd,
+):
+    # latest item-level (EPN) judgment per (row_id, ppn, epn)
+    _items: dict[tuple, dict] = {}
+    for _e in all_events:
+        if _e.get("step") != "judgment_item":
+            continue
+        _k = (_e["row_id"], _e.get("ppn"), _e.get("epn"))
+        if _k not in _items or _e.get("ts", "") > _items[_k].get("ts", ""):
+            _items[_k] = _e
+
+    def _shelfmarks(row_id, ppn):
+        return ", ".join(
+            f"{e.get('shelfmark', '—')} ({e.get('verdict')})"
+            for (r, p, _), e in _items.items() if r == row_id and p == ppn
+        ) or None
+
+    _records = []
+    for _row_id, _ppn in human_only_ppns:
+        _j = judgments_by_row_ppn[(_row_id, _ppn)]
+        _records.append({
+            "Lfd. Nr.": _row_id,
+            "PPN": _ppn,
+            "Notiz": _j.get("note"),
+        
+        })
+
+    human_only_df = (
+        pd.DataFrame(_records,
+                     columns=["Lfd. Nr.", "PPN", "Notiz"])
+        .merge(df[["Lfd. Nr.", "Titel"]], on="Lfd. Nr.", how="left")
+        .sort_values(["Lfd. Nr.", "PPN"], key=lambda s: s.astype(str).str.zfill(12))
+        .reset_index(drop=True)
+    )
+
+    mo.vstack([
+        mo.md(f"### Nur durch manuell angepasste Suche gefunden · "
+              f"{human_only_df['Lfd. Nr.'].nunique()} Zeilen / {len(human_only_df)} PPNs"),
+        mo.ui.table(human_only_df, selection=None),
     ])
     return
 
