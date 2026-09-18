@@ -52,7 +52,8 @@ def query_name(template: str) -> str:
 
 def run_batch(df: pd.DataFrame, templates: list[str], catalogue: str,
               logger: EventLogger, uid_col: str,
-              exclude_digitised: bool = True, year_col: str | None = None,
+              exclude_digitised: bool = True, exclude_microforms: bool = True,
+              year_col: str | None = None,
               year_clause_col: str = "Jahr_CQL",
               skip_done: set[tuple[str, str]] | None = None) -> None:
     df = df.copy()
@@ -89,7 +90,8 @@ def run_batch(df: pd.DataFrame, templates: list[str], catalogue: str,
                 continue
 
             nr_of_records, ppns = run_query(query, catalogue=catalogue,
-                                            exclude_digitised=exclude_digitised)
+                                            exclude_digitised=exclude_digitised,
+                                            exclude_microforms=exclude_microforms)
             logger.log(row_id, "sru_search", query_name=name, template=template,
                     query=query, catalogue=catalogue,
                     n_results=nr_of_records, ppns=ppns)
@@ -104,6 +106,9 @@ def main():
                          help='CQL template with {ColumnName} placeholders, e.g. '
                               '"pica.tit={Titel} AND {!Jahr_CQL}". Repeatable.')
     parser.add_argument("--no-exclude-digitised", action="store_true")
+    parser.add_argument("--no-exclude-digitised", action="store_true")
+    parser.add_argument("--no-exclude-microforms", action="store_true",
+                        help="Include microform records (pica.bbg=E*), excluded by default")
     parser.add_argument("--sep", default=";")
     parser.add_argument("--year-col", default=None,
                          help="Column holding a year or range, normalized via normalize_years, "
@@ -136,7 +141,9 @@ def main():
     with EventLogger(args.output_jsonl) as logger:
         skip_done = logger.already_done()
         run_batch(df, args.query, catalogue=args.catalogue, logger=logger,
-                  uid_col=args.uid_col, exclude_digitised=not args.no_exclude_digitised,
+                  uid_col=args.uid_col,
+                  exclude_digitised=not args.no_exclude_digitised,
+                  exclude_microforms=not args.no_exclude_microforms,
                   year_col=args.year_col, skip_done=skip_done)
         run_id = logger.run_id
 
