@@ -27,7 +27,7 @@ class RankedCandidate:
 def rank_candidates(
     candidates: dict[str, dict],
     expected: float | None,
-    tolerance: float = 3.0,
+    tolerance: int = 9,
 ) -> list[RankedCandidate]:
     """
     candidates: query_name -> {"n_results": int, "ppns": [...], "template": str}
@@ -41,7 +41,7 @@ def rank_candidates(
         n = info["n_results"]
         plausible = n > 0
         if plausible and expected and expected > 0:
-            plausible = n <= expected * tolerance
+            plausible = n <= expected + tolerance
         entries.append(RankedCandidate(
             query_name=name, template=info["template"], n_results=n,
             ppns=info["ppns"], specificity=specificity(info["template"]),

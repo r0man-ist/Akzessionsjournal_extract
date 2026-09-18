@@ -35,7 +35,7 @@ def main():
     parser.add_argument("--uid-col", default="Lfd. Nr.")
     parser.add_argument("--expected-col", default="Zahl")
     parser.add_argument("--sep", default=";")
-    parser.add_argument("--tolerance", type=float, default=3.0)
+    parser.add_argument("--tolerance", type=int, default=9)
     args = parser.parse_args()
 
     df = pd.read_csv(args.input_csv, sep=args.sep, dtype=str)

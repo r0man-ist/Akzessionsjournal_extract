@@ -113,7 +113,7 @@ def main():
     parser.add_argument("--expected-col", default="Zahl")
     parser.add_argument("--catalogue", choices=["k10plus", "stabikat", "VD17"], default="stabikat")
     parser.add_argument("--sep", default=";")
-    parser.add_argument("--tolerance", type=float, default=3.0)
+    parser.add_argument("--tolerance", type=int, default=9)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
