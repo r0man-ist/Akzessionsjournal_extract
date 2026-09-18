@@ -90,12 +90,15 @@ def parse_sru(xml_string: str) -> tuple[int, list[str]]:
 
 
 def run_query(query: str, catalogue: str, exclude_digitised: bool = True,
+              exclude_microforms: bool = True,
               maximum_records: int = 20) -> tuple[int, list[str]]:
     """Run a ready-made CQL query string and parse the response."""
     if not query.strip():
         return 0, []
     if exclude_digitised:
         query = f"{query} NOT pica.bbg=O*"
+    if exclude_microforms:
+        query = f"{query} NOT pica.bbg=E*"
     print(f"Running query: {query}") # for debugging purposes
     xml = query_sru(query, catalogue, maximum_records=maximum_records)
     print(f"Received XML: {xml[:800]}...") # for debugging purposes
