@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.21.1"
+__generated_with = "0.24.2"
 app = marimo.App(width="full")
 
 
@@ -673,18 +673,18 @@ def _(
     # --- gemeinsame Grundlage für 3) und 5): alle judgment-Events
     #     gruppiert nach (row_id, ppn), + letztes Urteil je Quelle ---------
 
-    _events_by_pair: dict[tuple, list] = defaultdict(list)
+    events_by_pair: dict[tuple, list] = defaultdict(list)
     for _e in all_events:
         if _e.get("step") == "judgment" and _e.get("ppn"):
-            _events_by_pair[(_e["row_id"], _e["ppn"])].append(_e)
+            events_by_pair[(_e["row_id"], _e["ppn"])].append(_e)
 
 
-    _last_by_source_by_pair: dict[tuple, dict] = {}
-    for _pair, _evs in _events_by_pair.items():
+    last_by_source_by_pair: dict[tuple, dict] = {}
+    for _pair, _evs in events_by_pair.items():
         _last = {}
         for _e in sorted(_evs, key=lambda e: e.get("ts", "")):
             _last[_e.get("judged_by", "?")] = _e.get("verdict")
-        _last_by_source_by_pair[_pair] = _last
+        last_by_source_by_pair[_pair] = _last
 
 
     # 3) gefundene Titel, vom LLM als "accept" bewertet --------------------
@@ -695,12 +695,12 @@ def _(
 
 
     _llm_accept_ppns = {
-        pair for pair, last in _last_by_source_by_pair.items()
+        pair for pair, last in last_by_source_by_pair.items()
         if last.get("llm") == "accept" and pair[0] in _found_rows
     }
 
     _llm_judged_ppns_in_found = {
-        pair for pair, last in _last_by_source_by_pair.items()
+        pair for pair, last in last_by_source_by_pair.items()
         if "llm" in last and pair[0] in _found_rows
     }
 
@@ -724,17 +724,17 @@ def _(
     # 5) abweichende Urteile Mensch vs. LLM ---------------------------------
 
     _disagree_rows = {
-        pair[0] for pair, last in _last_by_source_by_pair.items()
+        pair[0] for pair, last in last_by_source_by_pair.items()
         if "llm" in last and "human" in last and last["llm"] != last["human"]
     }
 
     _disagree_ppns = {
-        pair for pair, last in _last_by_source_by_pair.items()
+        pair for pair, last in last_by_source_by_pair.items()
         if "llm" in last and "human" in last and last["llm"] != last["human"]
     }
 
     _reviewed_ppns = {
-        pair for pair, last in _last_by_source_by_pair.items()
+        pair for pair, last in last_by_source_by_pair.items()
         if "llm" in last and "human" in last
     }
 
@@ -747,7 +747,7 @@ def _(
     mo.md(f"""
 
     ## Statistik
-    | Kennzahl | Zeilen | Anteil (Zeilen) | PPNs | Anteil (PPNs) |
+    |  | Zeilen | Anteil (Zeilen) | PPNs | Anteil (PPNs) |
     |---|---:|---:|---:|---:|
     | Titel gefunden (plausibel) | {len(_found_rows)} | {_pct_of(len(_found_rows), _n)} | {len(_found_ppns)} | – |
     | gefunden, aber unplausibel (z. B. zu viele Treffer) | {len(_found_implausible_rows)} | {_pct_of(len(_found_implausible_rows), _n)} | {len(_found_implausible_ppns)} | – |
@@ -759,6 +759,47 @@ def _(
     *Zeilen-Basis: {_n} Zeilen aus der CSV · {len(_reviewed_rows)} davon mit mind. einem menschl. Urteil.*
 
     """)
+    return events_by_pair, last_by_source_by_pair
+
+
+@app.cell
+def _(
+    df,
+    events_by_pair: dict[tuple, list],
+    last_by_source_by_pair: dict[tuple, dict],
+    mo,
+    pd,
+):
+    def _latest_event(pair, source):
+        _evs = [e for e in events_by_pair[pair] if e.get("judged_by") == source]
+        return max(_evs, key=lambda e: e.get("ts", "")) if _evs else {}
+
+    _records = []
+    for _pair, _last in last_by_source_by_pair.items():
+        if "llm" in _last and "human" in _last and _last["llm"] != _last["human"]:
+            _h = _latest_event(_pair, "human")
+            _l = _latest_event(_pair, "llm")
+            _records.append({
+                "Lfd. Nr.": _pair[0],
+                "PPN": _pair[1],
+                "Urteil Mensch": _last["human"],
+                "Urteil LLM": _last["llm"],
+                "Konfidenz LLM": _l.get("confidence"),
+                "Notiz Mensch": _h.get("note"),
+                "Begründung LLM": _l.get("reasoning"),
+            })
+
+    disagree_df = (
+        pd.DataFrame(_records)
+        .merge(df[["Lfd. Nr.", "Titel"]], on="Lfd. Nr.", how="left")
+        .sort_values("Lfd. Nr.", key=lambda s: s.astype(int))
+        .reset_index(drop=True)
+    )
+
+    mo.vstack([
+        mo.md(f"### Urteil Mensch ≠ LLM · {disagree_df['Lfd. Nr.'].nunique()} Zeilen / {len(disagree_df)} PPNs"),
+        mo.ui.table(disagree_df, selection=None),
+    ])
     return
 
 
