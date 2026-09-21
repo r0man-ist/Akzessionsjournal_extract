@@ -24,6 +24,15 @@ class RankedCandidate:
     overlap_score: int = 0
 
 
+DEFAULT_TOLERANCE = 9
+
+def is_plausible(n: int, expected: float | None, tolerance: int = DEFAULT_TOLERANCE) -> bool:
+    if n <= 0:
+        return False
+    if expected and expected > 0:
+        return n <= expected + tolerance
+    return True
+
 def rank_candidates(
     candidates: dict[str, dict],
     expected: float | None,
@@ -39,14 +48,13 @@ def rank_candidates(
     entries = []
     for name, info in candidates.items():
         n = info["n_results"]
-        plausible = n > 0
-        if plausible and expected and expected > 0:
-            plausible = n <= expected + tolerance
-        entries.append(RankedCandidate(
-            query_name=name, template=info["template"], n_results=n,
-            ppns=info["ppns"], specificity=specificity(info["template"]),
-            plausible=plausible,
-        ))
+        plausible = is_plausible(n, expected, tolerance)
+        if plausible:
+            entries.append(RankedCandidate(
+                query_name=name, template=info["template"], n_results=n,
+                ppns=info["ppns"], specificity=specificity(info["template"]),
+                plausible=plausible,
+            ))
 
     # overlap: how many other tiers also surfaced each PPN
     ppn_counts = Counter()
