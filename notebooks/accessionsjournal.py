@@ -621,15 +621,9 @@ def _(
 
 
     # 1) Titel gefunden vs. keine gefunden -------------------------------
-
     # "gefunden" verlangt zusätzlich, dass der beste Kandidat als plausibel
-
-    # eingestuft wurde (rank.py: plausible = n_results > 0 and n_results <=
-
-    # expected * tolerance). Bei Retry-Erfolgen fehlt der "plausible"-Key
-
+    # eingestuft wurde (n_results <=  expected + tolerance). Bei Retry-Erfolgen fehlt der "plausible"-Key
     # ganz (retry.py loggt ihn nicht) -- solche Zeilen sollen trotzdem
-
     # zählen, daher "is not False" statt "is True".
 
     _ok_rows = {rid for rid in _row_ids if latest_ranking.get(rid, {}).get("status") == "ok"}
@@ -764,35 +758,61 @@ def _(
     mo,
     pd,
 ):
-    def _latest_event(pair, source):
-        _evs = [e for e in events_by_pair[pair] if e.get("judged_by") == source]
-        return max(_evs, key=lambda e: e.get("ts", "")) if _evs else {}
+    def _latest_event(pair, source):
 
-    _records = []
-    for _pair, _last in last_by_source_by_pair.items():
-        if "llm" in _last and "human" in _last and _last["llm"] != _last["human"]:
-            _h = _latest_event(_pair, "human")
-            _l = _latest_event(_pair, "llm")
-            _records.append({
-                "Lfd. Nr.": _pair[0],
-                "PPN": _pair[1],
-                "Urteil Mensch": _last["human"],
-                "Urteil LLM": _last["llm"],
-                "Konfidenz LLM": _l.get("confidence"),
-                "Notiz Mensch": _h.get("note"),
-                "Begründung LLM": _l.get("reasoning"),
-            })
+        _evs = [e for e in events_by_pair[pair] if e.get("judged_by") == source]
 
-    disagree_df = (
-        pd.DataFrame(_records)
-        .merge(df[["Lfd. Nr.", "Titel"]], on="Lfd. Nr.", how="left")
-        .sort_values("Lfd. Nr.", key=lambda s: s.astype(int))
-        .reset_index(drop=True)
-    )
+        return max(_evs, key=lambda e: e.get("ts", "")) if _evs else {}
 
-    mo.vstack([
-        mo.md(f"### Urteil Mensch ≠ LLM · {disagree_df['Lfd. Nr.'].nunique()} Zeilen / {len(disagree_df)} PPNs"),
-        mo.ui.table(disagree_df, selection=None),
+
+    _records = []
+
+    for _pair, _last in last_by_source_by_pair.items():
+
+        if "llm" in _last and "human" in _last and _last["llm"] != _last["human"]:
+
+            _h = _latest_event(_pair, "human")
+
+            _l = _latest_event(_pair, "llm")
+
+            _records.append({
+
+                "Lfd. Nr.": _pair[0],
+
+                "PPN": _pair[1],
+
+                "Urteil Mensch": _last["human"],
+
+                "Urteil LLM": _last["llm"],
+
+                "Konfidenz LLM": _l.get("confidence"),
+
+                "Notiz Mensch": _h.get("note"),
+
+                "Begründung LLM": _l.get("reasoning"),
+
+            })
+
+
+    disagree_df = (
+
+        pd.DataFrame(_records)
+
+        .merge(df[["Lfd. Nr.", "Titel"]], on="Lfd. Nr.", how="left")
+
+        .sort_values("Lfd. Nr.", key=lambda s: s.astype(int))
+
+        .reset_index(drop=True)
+
+    )
+
+
+    mo.vstack([
+
+        mo.md(f"### Urteil Mensch ≠ LLM · {disagree_df['Lfd. Nr.'].nunique()} Zeilen / {len(disagree_df)} PPNs"),
+
+        mo.ui.table(disagree_df, selection=None),
+
     ])
     return
 
@@ -833,7 +853,7 @@ def _(
             "Lfd. Nr.": _row_id,
             "PPN": _ppn,
             "Notiz": _j.get("note"),
-        
+    
         })
 
     human_only_df = (
