@@ -56,7 +56,7 @@ plausibility, and appends `ranking` events to the same JSONL.
 python rank.py output.csv log.jsonl \
     --uid-col "Lfd. Nr." \
     --expected-col Zahl \
-    --tolerance 3.0
+
 ```
 
 ### 5. Judge (`judge.py`)
