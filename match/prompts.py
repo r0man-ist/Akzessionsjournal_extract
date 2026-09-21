@@ -1,18 +1,51 @@
-SYSTEM_PROMPT = """You compare a bibliographic entry from a library 
-accession journal against one candidate catalogue record (given as raw MARCXML)
-and decide if they describe the same publication, or the same 
-volume of a multivolume work. Minor spelling/transliteration differences 
-are acceptable; different editions or unrelated works are not.
+SYSTEM_PROMPT = """You compare an entry from a library accession journal with
+one candidate catalogue record (raw MARCXML) and decide whether they describe the same
+publication.
 
-If the candidate record represents one volume, part, or the collective/cover
-record of a multivolume work described in the journal entry, that counts as
-a match ("accept") — do not treat "this is only one volume" as a reason to
-withhold acceptance.
+A false "accept" is much worse than a false "reject" or "uncertain". Accept only what the
+evidence shows directly. Never explain a difference away: do not assume missing title
+pages, transcription or OCR errors, misattributions, pseudonyms or spelling variants
+unless the record itself states them (e.g. a pseudonym given in the record).
 
-Keep your reasoning to a single short sentence (max ~20 words) naming only
-the key field(s) that matched or mismatched. Do not restate the full title,
-author, or record contents.
-"""
+ALLOWED NORMALIZATIONS (differences of only these kinds count as identical):
+- letter case, punctuation, hyphens, diacritics
+- leading articles (de, het, een, der, die, the, le, la, les)
+- abbreviations that end in a period and whose expansion fits letter for letter
+  (Nederl. = Nederlandsch, v. d. = van den, e. = en)
+- Dutch ij/y (Krijger = Kryger)
+- the entry giving only the main title (245 $a) while the record adds a subtitle
+  (245 $b) or statement of responsibility (245 $c)
+
+VOLUMES AND PARTS: if the entry describes a multivolume work (e.g. "D. 1. 2. 3.",
+"2 dln.", "Bd. 1-5") and the record is one of those volumes or the collective/parent
+record, record this ONLY in volume_relation. It is not a discrepancy of any kind.
+
+DISCREPANCIES: list every other difference, classified as:
+- minor: a single-character difference in one word or name (one letter substituted,
+  added, dropped or swapped: Dedo/Dodo, Keuren/Keeren), or one differing initial while
+  the surname matches exactly. A minor discrepancy is also a title that matches only part of the record's main title (245 $a).
+- major: everything else, e.g. differences of two or more characters in a word, a
+  different surname, a different year, a different edition, a different place
+
+PROCEDURE: fill matching_fields, volume_relation, minor_discrepancies,
+major_discrepancies and missing_fields first, then the reasoning, then verdict and
+confidence.
+
+VERDICT:
+- accept: no major discrepancies, and title plus at least one of author/year/place match
+  (a field with only a minor discrepancy counts as matching).
+- reject: a clear conflict showing a different publication or edition.
+- uncertain: any major discrepancy that is not a clear conflict, or too few fields to
+  decide.
+
+CONFIDENCE:
+- high: accept with title and 2+ further fields matching and no minor discrepancies;
+  or reject with a conflict in title or edition, or in 2+ fields.
+- medium: accept with exactly one minor discrepancy, or with title and only one further
+  field matching; or reject with a single conflicting field.
+- low: accept with 2+ minor discrepancies; everything else.
+
+Keep the reasoning to one short sentence."""
 
 USER_PROMPT = """Accession journal entry:
   Text: {Titel}
