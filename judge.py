@@ -26,6 +26,28 @@ from utils.sru import get_record
 
 logger = logging.getLogger(__name__)
 
+def enforce_strictness(r: JudgmentResult) -> JudgmentResult:
+    """Deterministic backstop: the prompt asks for strictness, this guarantees it."""
+    notes = []
+    n_match = len(r.matching_fields)
+
+    if r.verdict == "accept" and r.discrepancies:
+        r.verdict, r.confidence = "uncertain", "low"
+        notes.append("accept→uncertain: discrepancies listed")
+    elif r.verdict == "accept" and n_match < 2:
+        r.verdict, r.confidence = "uncertain", "low"
+        notes.append("accept→uncertain: <2 matching fields")
+    elif r.verdict == "accept" and r.confidence == "high" and n_match < 3:
+        r.confidence = "medium"
+        notes.append("high→medium: <3 matching fields")
+
+    if r.verdict == "uncertain" and r.confidence == "high":
+        r.confidence = "medium"
+        notes.append("uncertain cannot be high")
+
+    if notes:
+        r.reasoning = f"[strict: {'; '.join(notes)}] {r.reasoning}"
+    return r
 
 def judge_candidate(client: OpenAI, row: dict, record_xml: str, ppn: str) -> JudgmentResult:
     prompt = USER_PROMPT.format(Titel=row.get("Titel"), record_xml=record_xml)
@@ -76,10 +98,11 @@ def judge_candidate(client: OpenAI, row: dict, record_xml: str, ppn: str) -> Jud
                 time.sleep(RETRY_BACKOFF_BASE ** attempt)
 
     return JudgmentResult(
-        verdict="uncertain",
-        confidence="low",
+        matching_fields=[], volume_relation="not_applicable",
+        minor_discrepancies=[], major_discrepancies=[], missing_fields=[],
+        verdict="uncertain", confidence="low",
         reasoning=f"LLM call failed after {MAX_RETRIES} attempts: {last_error}"[:150],
-)
+    )
 
 
 def latest_ranking_events(jsonl_path: Path) -> dict[str, dict]:
@@ -148,8 +171,13 @@ def main():
 
                 result = judge_candidate(client, row.to_dict(), record_xml, ppn)
                 event_logger.log(row_id, "judgment", ppn=ppn, judged_by="llm",
-                                  verdict=result.verdict, confidence=result.confidence,
-                                  reasoning=result.reasoning)
+                                verdict=result.verdict, confidence=result.confidence,
+                                reasoning=result.reasoning,
+                                matching_fields=result.matching_fields,
+                                volume_relation=result.volume_relation,
+                                minor_discrepancies=result.minor_discrepancies,
+                                major_discrepancies=result.major_discrepancies,
+                                missing_fields=result.missing_fields)
                 logger.info("Judged row %s / PPN %s -> %s", row_id, ppn, result.verdict)
 
     print(f"Judged candidates for {len(rankings)} ranked rows, logged to {args.input_jsonl}")
