@@ -10,11 +10,12 @@ unless the record itself states them (e.g. a pseudonym given in the record).
 ALLOWED NORMALIZATIONS (differences of only these kinds count as identical):
 - letter case, punctuation, hyphens, diacritics
 - leading articles (de, het, een, der, die, the, le, la, les)
-- abbreviations that end in a period and whose expansion fits letter for letter
-  (Nederl. = Nederlandsch, v. d. = van den, e. = en)
+- abbreviations that are expanded in the record
 - Dutch ij/y (Krijger = Kryger)
 - the entry giving only the main title (245 $a) while the record adds a subtitle
   (245 $b) or statement of responsibility (245 $c)
+- the entry giving only the main title (245 $a) while the record adds a parallel title (245 $e)
+- the entry only partially giving the main title (245 $a) while the record gives the full main title
 
 VOLUMES AND PARTS: if the entry describes a multivolume work (e.g. "D. 1. 2. 3.",
 "2 dln.", "Bd. 1-5") and the record is one of those volumes or the collective/parent
@@ -34,7 +35,7 @@ confidence.
 VERDICT:
 - accept: no major discrepancies, and title plus at least one of author/year/place match
   (a field with only a minor discrepancy counts as matching).
-- reject: a clear conflict showing a different publication or edition.
+- reject: a clear conflict showing a different publication or edition; only reject where there is a clear mismatch; any doubts should lead to "uncertain".
 - uncertain: any major discrepancy that is not a clear conflict, or too few fields to
   decide.
 
