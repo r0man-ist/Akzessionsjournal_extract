@@ -2,10 +2,14 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 import pandas as pd
-import ast
+import time
 import requests
-import re
 from lxml import etree
+
+RETRY_STATUS = {429, 500, 502, 503, 504}
+MAX_ATTEMPTS = 5
+BACKOFF_BASE = 2        # waits: 2, 4, 8, 16 s
+BACKOFF_MAX = 60
 
 SRU_BASE_URLS = {
     "stabikat": "https://sru.k10plus.de/opac-de-1",
@@ -49,7 +53,6 @@ def prepare_cql_string(value) -> str:
     value = quote(value)
     return value
 
-
 def query_sru(query: str, catalogue: str, maximum_records: int = 20, timeout: int = 30) -> str:
     if catalogue not in SRU_BASE_URLS:
         raise ValueError(f"Unknown catalogue '{catalogue}', expected one of {list(SRU_BASE_URLS)}")
@@ -65,11 +68,29 @@ def query_sru(query: str, catalogue: str, maximum_records: int = 20, timeout: in
         "maximumRecords": str(maximum_records),
         "query": query,
     }
-    query_string = urlencode(params, safe="+")
-    print(f"Sending request to {base_url}?{query_string}") # for debugging purposes
-    response = requests.get(f"{base_url}?{query_string}", timeout=timeout)
-    response.raise_for_status()
-    return response.text
+    url = f"{base_url}?{urlencode(params, safe='+')}"
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            response = requests.get(url, timeout=timeout)
+            if response.status_code not in RETRY_STATUS:
+                response.raise_for_status()      # other 4xx: fail immediately
+                return response.text
+            error = f"HTTP {response.status_code}"
+            retry_after = response.headers.get("Retry-After")
+        except (requests.ConnectionError, requests.Timeout) as e:
+            error = str(e)
+            retry_after = None
+
+        if attempt == MAX_ATTEMPTS:
+            raise requests.HTTPError(f"SRU failed after {MAX_ATTEMPTS} attempts: {error}")
+
+        wait = BACKOFF_BASE ** attempt
+        if retry_after and retry_after.isdigit():
+            wait = int(retry_after)
+        wait = min(wait, BACKOFF_MAX)
+        print(f"{error} – retry {attempt}/{MAX_ATTEMPTS - 1} in {wait}s")
+        time.sleep(wait)
 
 
 def parse_sru(xml_string: str) -> tuple[int, list[str]]:
