@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 import re
 from pathlib import Path
+import unicodedata
 
 import pandas as pd
 
@@ -49,6 +50,23 @@ def query_name(template: str) -> str:
     columns = quoted_columns + raw_columns
     return "_".join(columns) if columns else re.sub(r"\W+", "_", template)[:30]
 
+def last_name(value) -> str:
+    """'["van den Berg"]' -> 'Berg'; '["Wheeler, J. Talboys"]' -> 'Wheeler';
+    '["Cool", "Hooyer"]' -> 'Cool'; '["Arriëns"]' -> 'Arriens'."""
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    try:
+        names = json.loads(value)                  # '["a", "b"]' -> ['a', 'b']
+    except json.JSONDecodeError:
+        names = [value]
+    if not names or not isinstance(names, list):
+        return ""
+    name = str(names[0]).split(",")[0].strip()      # first author, drop forenames
+    token = name.split()[-1] if name.split() else ""  # last word = surname, drops "van den", "de" …
+    if token.endswith("."):                         # "Ders.", "Javan." -> no usable author
+        return ""
+    token = unicodedata.normalize("NFKD", token)
+    return "".join(c for c in token if not unicodedata.combining(c))
 
 def run_batch(df: pd.DataFrame, templates: list[str], catalogue: str,
               logger: EventLogger, uid_col: str,
@@ -106,7 +124,6 @@ def main():
                          help='CQL template with {ColumnName} placeholders, e.g. '
                               '"pica.tit={Titel} AND {!Jahr_CQL}". Repeatable.')
     parser.add_argument("--no-exclude-digitised", action="store_true")
-    parser.add_argument("--no-exclude-digitised", action="store_true")
     parser.add_argument("--no-exclude-microforms", action="store_true",
                         help="Include microform records (pica.bbg=E*), excluded by default")
     parser.add_argument("--sep", default=";")
@@ -137,7 +154,7 @@ def main():
             f"Empty values in UID column '{args.uid_col}' at rows: "
             + str(missing.index.tolist())
         )
-    
+    df["author_last"] = df["author_normalized"].map(last_name)
     with EventLogger(args.output_jsonl) as logger:
         skip_done = logger.already_done()
         run_batch(df, args.query, catalogue=args.catalogue, logger=logger,
@@ -157,4 +174,5 @@ if __name__ == "__main__":
     --catalogue "k10plus" (default: stabikat) \
     --year-col "Jahr" \
     --uid-col "Nr" \
-    --query "pica.tit={Titel} AND {!Jahr_CQL}"""
+    --query "pica.tit={Titel} AND {!Jahr_CQL}
+    --query "pica.tit={title_search} AND pica.per={author_last} AND {!Jahr_CQL}"""
