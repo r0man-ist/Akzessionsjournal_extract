@@ -611,6 +611,7 @@ def _(
     judgments_by_row_ppn,
     latest_ranking,
     mo,
+    pd,
     searches_by_row: dict[str, list[dict]],
 ):
     _row_ids = [str(r) for r in df["Lfd. Nr."]]
@@ -643,24 +644,22 @@ def _(
     }
 
 
-
     # 2) davon nur via Retry-Logik gefunden -------------------------------
 
     _retry_only_rows = {
         rid for rid in _found_rows
-        if (latest_ranking.get(rid, {}).get("chosen_query_name").startswith("llm_retry"))
+        if (latest_ranking.get(rid, {}).get("chosen_query_name") or "").startswith("llm_retry")
     }
 
     _retry_only_ppns = {
         (rid, ppn)
         for rid in _retry_only_rows
         for ppn in (latest_ranking.get(rid, {}).get("ppns") or [])
-
     }
 
 
-    # --- gemeinsame Grundlage für 3) und 5): alle judgment-Events
-    #     gruppiert nach (row_id, ppn), + letztes Urteil je Quelle ---------
+    # --- gemeinsame Grundlage: alle judgment-Events gruppiert nach
+    #     (row_id, ppn), + letztes Urteil je Quelle ---------------------------
 
     events_by_pair: dict[tuple, list] = defaultdict(list)
     for _e in all_events:
@@ -681,7 +680,6 @@ def _(
         e["row_id"] for e in all_events
         if e.get("step") == "judgment" and e.get("judged_by") == "llm" and e.get("verdict") == "accept"
     } & _found_rows
-
 
     _llm_accept_ppns = {
         pair for pair, last in last_by_source_by_pair.items()
@@ -711,21 +709,20 @@ def _(
 
 
     # 5) abweichende Urteile Mensch vs. LLM ---------------------------------
-
-    _disagree_rows = {
-        pair[0] for pair, last in last_by_source_by_pair.items()
-        if "llm" in last and "human" in last and last["llm"] != last["human"]
-    }
-
-    _disagree_ppns = {
-        pair for pair, last in last_by_source_by_pair.items()
-        if "llm" in last and "human" in last and last["llm"] != last["human"]
-    }
+    # Nur PPNs, die BEIDE Quellen bewertet haben. Fehlendes menschliches
+    # Urteil zählt hier bewusst NICHT als Abweichung (siehe Abschnitt 7).
 
     _reviewed_ppns = {
         pair for pair, last in last_by_source_by_pair.items()
         if "llm" in last and "human" in last
     }
+
+    _disagree_ppns = {
+        pair for pair in _reviewed_ppns
+        if last_by_source_by_pair[pair]["llm"] != last_by_source_by_pair[pair]["human"]
+    }
+
+    _disagree_rows = {pair[0] for pair in _disagree_ppns}
 
     _reviewed_rows = {
         e["row_id"] for e in all_events
@@ -733,35 +730,85 @@ def _(
     }
 
 
-    # 5) laxere Urteile LLM vs. Mensch ---------------------------------
-
-    _disagree_rows_llm_accept = {
-        pair[0] for pair, last in last_by_source_by_pair.items()
-        if "llm" in last and "human" in last and last["llm"] == "accept" and last["human"] != "accept"
-    }
+    # 5b) laxere Urteile LLM vs. Mensch --------------------------------------
 
     _disagree_ppns_llm_accept = {
-        pair for pair, last in last_by_source_by_pair.items()
-        if "llm" in last and "human" in last and last["llm"] == "accept" and last["human"] != "accept"
+        pair for pair in _reviewed_ppns
+        if last_by_source_by_pair[pair]["llm"] == "accept"
+        and last_by_source_by_pair[pair]["human"] != "accept"
     }
 
+    _disagree_rows_llm_accept = {pair[0] for pair in _disagree_ppns_llm_accept}
 
 
-    mo.md(f"""
+    # 6) Zeilen, für die weder Suche noch LLM noch Mensch etwas gefunden haben ---
+
+    _accepted_rows = {
+        pair[0] for pair, last in last_by_source_by_pair.items()
+        if "accept" in last.values()
+    } | _human_only_rows
+
+    _nothing_found_rows = set(_row_ids) - _found_rows - _accepted_rows
+
+
+    # 7) Separat: PPNs mit LLM-Urteil, aber ohne menschliches Urteil ---------
+    # Fließt NICHT in die Statistik oben ein, nur in die Tabelle unten.
+
+    _no_human_ppns = {
+        pair for pair, last in last_by_source_by_pair.items()
+        if "llm" in last and "human" not in last
+    }
+
+    _row_order = {rid: i for i, rid in enumerate(_row_ids)}
+
+    _missing_human_df = pd.DataFrame(
+        [
+            {
+                "Lfd. Nr.": rid,
+                "PPN": ppn,
+                "LLM-Urteil": last_by_source_by_pair[(rid, ppn)]["llm"],
+                "Titel gefunden (plausibel)": rid in _found_rows,
+                "Zeile hat sonst menschl. Urteil": rid in _reviewed_rows,
+            }
+            for (rid, ppn) in sorted(
+                _no_human_ppns,
+                key=lambda p: (_row_order.get(p[0], len(_row_order)), p[1]),
+            )
+        ],
+        columns=[
+            "Lfd. Nr.",
+            "PPN",
+            "LLM-Urteil",
+            "Titel gefunden (plausibel)",
+            "Zeile hat sonst menschl. Urteil",
+        ],
+    )
+
+
+    _stats_md = mo.md(f"""
 
     ## Statistik
     |  | Zeilen | Anteil (Zeilen) | PPNs | Anteil (PPNs) |
     |---|---:|---:|---:|---:|
-    | Titel gefunden (plausibel) | {len(_found_rows)} | {_pct_of(len(_found_rows), _n)} | {len(_found_ppns)} | – |
+    | Titel gefunden (plausible Menge) | {len(_found_rows)} | {_pct_of(len(_found_rows), _n)} | {len(_found_ppns)} | – |
     | davon nur via Retry-Logik gefunden | {len(_retry_only_rows)} | {_pct_of(len(_retry_only_rows), _n)} | {len(_retry_only_ppns)} | – |
-    | kein Titel gefunden | {len(_none_found_rows)} | {_pct_of(len(_none_found_rows), _n)} | – | – |
-    | gefundene Titel von LLM als „accept" bewertet | {len(_llm_accept_rows)} | {_pct_of(len(_llm_accept_rows), _n)} | {len(_llm_accept_ppns)} | {_pct_of(len(_llm_accept_ppns), len(_llm_judged_ppns_in_found))} || nur durch Mensch gefunden (PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), len(_reviewed_rows))} | {len(human_only_ppns)} | – |
-    | Urteil Mensch ≠ LLM | {len(_disagree_rows)} | {_pct_of(len(_disagree_rows), _n)} | {len(_disagree_ppns)} | {_pct_of(len(_disagree_ppns), len(_found_ppns))} |
-    | Urteil LLM "accept"; Mensch "uncertain / reject" | {len(_disagree_rows_llm_accept)} | {_pct_of(len(_disagree_ppns_llm_accept), _n)} | {len(_disagree_ppns_llm_accept)} | {_pct_of(len(_disagree_ppns_llm_accept), len(_found_ppns))} |
-    | Nur durch manuell angepasste Suche gefunden (zusätzlich, PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), _n)} | {len(human_only_ppns)} | – |
-    *Zeilen-Basis: {_n} Zeilen aus der CSV · {len(_reviewed_rows)} davon mit mind. einem menschl. Urteil.*
+    | kein Titel gefunden (autom. Suche) | {len(_none_found_rows)} | {_pct_of(len(_none_found_rows), _n)} | – | – |
+    | nur durch Mensch gefunden (PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), len(_reviewed_rows))} | {len(human_only_ppns)} | – |
+    | kein akzeptierter Treffer (weder LLM noch Mensch) | {len(_nothing_found_rows)} | {_pct_of(len(_nothing_found_rows), _n)} | – | – |
+    | gefundene Titel von LLM als „accept" bewertet | {len(_llm_accept_rows)} | {_pct_of(len(_llm_accept_rows), _n)} | {len(_llm_accept_ppns)} | {_pct_of(len(_llm_accept_ppns), len(_llm_judged_ppns_in_found))} |
+    | Urteil Mensch ≠ LLM | {len(_disagree_rows)} | {_pct_of(len(_disagree_rows), _n)} | {len(_disagree_ppns)} | {_pct_of(len(_disagree_ppns), len(_reviewed_ppns))} |
+    | Urteil LLM "accept"; Mensch "uncertain / reject" | {len(_disagree_rows_llm_accept)} | {_pct_of(len(_disagree_rows_llm_accept), _n)} | {len(_disagree_ppns_llm_accept)} | {_pct_of(len(_disagree_ppns_llm_accept), len(_reviewed_ppns))} |
+
+
+    *Zeilen-Basis: {_n} Zeilen aus der CSV*
 
     """)
+
+    mo.vstack([
+        _stats_md,
+        mo.md(f"### PPNs ohne menschliches Urteil ({len(_missing_human_df)})"),
+        mo.ui.table(_missing_human_df, selection=None),
+    ])
     return events_by_pair, human_only_ppns, last_by_source_by_pair
 
 
@@ -810,15 +857,10 @@ def _(
         mo.ui.table(disagree_df, selection=None),
 
         mo.md(f"### Urteil LLM = accept vs. Urteil Mensch = reject / uncertain · {disagree_df_llm_accept['Lfd. Nr.'].nunique()} Zeilen / {len(disagree_df_llm_accept)} PPNs"),
-    
+
         mo.ui.table(disagree_df_llm_accept, selection=None)
 
     ])
-    return
-
-
-@app.cell
-def _():
     return
 
 
@@ -853,7 +895,7 @@ def _(
             "Lfd. Nr.": _row_id,
             "PPN": _ppn,
             "Notiz": _j.get("note"),
-    
+
         })
 
     human_only_df = (
@@ -868,6 +910,169 @@ def _(
         mo.md(f"### Nur durch manuell angepasste Suche gefunden · "
               f"{human_only_df['Lfd. Nr.'].nunique()} Zeilen / {len(human_only_df)} PPNs"),
         mo.ui.table(human_only_df, selection=None),
+    ])
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ### Mehr Statistik: Akzeptierte PPNs enthalten
+    """)
+    return
+
+
+@app.cell
+def _(mo):
+    run_statistics = mo.ui.run_button(label="Records abfragen, um Statistik zu erzeugen; 1 SRU-Abfrage/PPN")
+    run_statistics
+    return (run_statistics,)
+
+
+@app.cell
+def _(
+    human_only_ppns,
+    last_by_source_by_pair: dict[tuple, dict],
+    mo,
+    run_statistics,
+    urllib,
+):
+    mo.stop(not run_statistics.value)
+    _SRU_URL = "https://sru.k10plus.de/opac-de-1"  # wie im Notebook (stabikat)
+
+    # Akzeptierte PPNs (LLM oder Mensch, letztes Urteil)
+    sru_accepted = {}  # ppn -> {"sources": set, "rows": set}
+
+    for (_rid, _ppn), _last in last_by_source_by_pair.items():
+        for _src, _verdict in _last.items():
+            if _verdict == "accept":
+                _e = sru_accepted.setdefault(_ppn, {"sources": set(), "rows": set()})
+                _e["sources"].add(_src)
+                _e["rows"].add(_rid)
+
+    for _rid, _ppn in human_only_ppns:
+        _e = sru_accepted.setdefault(_ppn, {"sources": set(), "rows": set()})
+        _e["sources"].add("human")
+        _e["rows"].add(_rid)
+
+    # Records abrufen
+    sru_raw = {}     # ppn -> XML-String
+    sru_errors = {}  # ppn -> Fehlermeldung
+
+    for _p in mo.status.progress_bar(sorted(sru_accepted), title="SRU-Abfragen (picaxml)"):
+        _params = urllib.parse.urlencode({
+            "version": "1.1",
+            "operation": "searchRetrieve",
+            "recordSchema": "picaxml",
+            "maximumRecords": "1",
+            "query": f"pica.xppn={_p}",
+        })
+        try:
+            with urllib.request.urlopen(f"{_SRU_URL}?{_params}", timeout=30) as _resp:
+                sru_raw[_p] = _resp.read().decode("utf-8")
+        except Exception as _exc:
+            sru_errors[_p] = f"{type(_exc).__name__}: {_exc}"
+
+    mo.md(
+        f"SRU: {len(sru_accepted)} akzeptierte PPNs · {len(sru_raw)} abgerufen · "
+        f"**{len(sru_errors)} Fehler**"
+    )
+    return sru_accepted, sru_errors, sru_raw
+
+
+@app.cell
+def _(ET, mo, pd, sru_accepted, sru_errors, sru_raw):
+    def _pct(x, base):
+        return f"{100 * x / base:.1f}%" if base else "–"
+
+
+    def _parse(ppn):
+        if ppn not in sru_raw:
+            return {"status": "error", "error": sru_errors.get(ppn, "nicht abgerufen")}
+        _root = ET.fromstring(sru_raw[ppn])
+        if int(_root.findtext("{*}numberOfRecords") or 0) == 0:
+            return {"status": "not_found", "error": ""}
+
+        _f209a = _root.findall(".//{*}datafield[@tag='209A']")
+        _f_values = [
+            (_sf.text or "").strip()
+            for _fld in _f209a
+            if _fld.get("occurrence") == "01"
+            for _sf in _fld.findall("{*}subfield[@code='f']")
+        ]
+
+         # 039D mit $c oder $i beginnend mit "Digital" (z. B. "Digitalisierte Ausg.")
+        _digi = any(
+            (_sf.text or "").strip().startswith("Digital")
+            for _fld in _root.findall(".//{*}datafield[@tag='039D']")
+            for _sf in _fld.findall("{*}subfield")
+            if _sf.get("code") in ("c", "i")
+        )
+
+        return {
+            "status": "ok",
+            "error": "",
+            "n_209a": len(_f209a),
+            "has_01": any(_fld.get("occurrence") == "01" for _fld in _f209a),
+            "f_values": _f_values,
+            "f4": any(_v.startswith("4") for _v in _f_values),
+            "digi": _digi,
+        }
+
+
+    _parsed = {_p: _parse(_p) for _p in sorted(sru_accepted)}
+
+    sru_records_df = pd.DataFrame([
+        {
+            "PPN": _p,
+            "Zeilen (Lfd. Nr.)": ", ".join(sorted(sru_accepted[_p]["rows"], key=lambda r: (len(r), r))),
+            "accept von": " + ".join(sorted(sru_accepted[_p]["sources"])),
+            "Status": _r["status"],
+            "Anzahl 209A": _r.get("n_209a"),
+            "209A/01 vorhanden": _r.get("has_01"),
+            "209A/01 $f": ", ".join(_r.get("f_values", [])),
+            "$f beginnt mit 4": _r.get("f4"),
+            "mehrere 209A": (_r["n_209a"] > 1) if _r["status"] == "ok" else None,
+            "hat digitalisierte Version": _r.get("digi"),
+            "Fehler": _r["error"],
+        }
+        for _p, _r in _parsed.items()
+    ])
+    _problems_df = sru_records_df[sru_records_df["Status"] != "ok"]
+
+    _ok = [_r for _r in _parsed.values() if _r["status"] == "ok"]
+    _n_acc, _n_ok = len(_parsed), len(_ok)
+    _n_nf = sum(_r["status"] == "not_found" for _r in _parsed.values())
+    _n_err = sum(_r["status"] == "error" for _r in _parsed.values())
+    _n_any = sum(_r["n_209a"] > 0 for _r in _ok)
+    _n_01 = sum(_r["has_01"] for _r in _ok)
+    _n_f4 = sum(_r["f4"] for _r in _ok)
+    _n_multi = sum(_r["n_209a"] > 1 for _r in _ok)
+    _n_digi = sum(_r["digi"] for _r in _ok)
+
+    mo.vstack([
+        mo.md(f"""
+
+    ## Statistik: 209A in akzeptierten Records
+    |  | PPNs | Anteil |
+    |---|---:|---:|
+    | Akzeptierte PPNs (LLM oder Mensch, eindeutig) | {_n_acc} | – |
+    | Record abgerufen | {_n_ok} | {_pct(_n_ok, _n_acc)} |
+    | nicht gefunden | {_n_nf} | {_pct(_n_nf, _n_acc)} |
+    | Abruf-Fehler / nicht abgerufen | {_n_err} | {_pct(_n_err, _n_acc)} |
+    | Record hat mind. ein Feld 209A | {_n_any} | {_pct(_n_any, _n_ok)} |
+    | Record hat 209A/01 | {_n_01} | {_pct(_n_01, _n_ok)} |
+    | 209A/01 $f beginnt mit „4" | {_n_f4} | {_pct(_n_f4, _n_ok)} |
+    | mehrere Felder 209A | {_n_multi} | {_pct(_n_multi, _n_ok)} |
+    | hat digitalisierte Version (039D $c „Digital…") | {_n_digi} | {_pct(_n_digi, _n_ok)} |
+
+    *Basis der Anteile: abgerufene Records.*
+
+    """),
+        mo.md("### Records"),
+        mo.ui.table(sru_records_df, selection=None),
+        *([mo.md(f"### Nicht abgerufen / nicht gefunden ({len(_problems_df)})"),
+           mo.ui.table(_problems_df, selection=None)] if len(_problems_df) else []),
     ])
     return
 
