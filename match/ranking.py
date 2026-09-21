@@ -4,15 +4,29 @@ import re
 from dataclasses import dataclass
 from collections import Counter
 
-_PLACEHOLDER_RE = re.compile(r"\{!?[^{}!][^{}]*\}")
 
 DEFAULT_TOLERANCE = 9
 
 
-def specificity(template: str) -> int:
-    """Number of distinct fields referenced in a CQL template — used as a proxy
-    for how constrained/trustworthy a query is."""
-    return len(_PLACEHOLDER_RE.findall(template))
+_PLACEHOLDER_NAME_RE = re.compile(r"\{!?([^{}]+)\}")
+
+FIELD_WEIGHTS = {
+    "title_search": 4.0,
+    "author_last": 1.5,
+    "Jahr_CQL": 1.0,
+    "publication_place_normalized": 0.5,
+}
+
+DEFAULT_WEIGHT = 1.0
+
+
+def template_fields(template: str) -> set[str]:
+    return set(_PLACEHOLDER_NAME_RE.findall(template or ""))
+
+
+def specificity(template: str) -> float:
+    """Weighted specificity: title dominates, place counts least."""
+    return sum(FIELD_WEIGHTS.get(f, DEFAULT_WEIGHT) for f in template_fields(template))
 
 
 def is_plausible(n: int, expected: float | None, tolerance: int = DEFAULT_TOLERANCE) -> bool:
@@ -77,24 +91,11 @@ def rank_candidates(
     return sorted(entries, key=sort_key)
 
 def find_monotonicity_violations(candidates: dict[str, dict]) -> list[str]:
-    """
-    Check that more specific queries never return MORE hits than less specific
-    ones (each added field is an AND-constraint, so results should only shrink
-    or stay flat). Returns human-readable messages for any violations found;
-    empty list if everything behaves as expected.
-    """
-    entries = [
-        (name, specificity(info["template"]), info["n_results"])
-        for name, info in candidates.items()
-    ]
-    entries.sort(key=lambda e: e[1])  # sort by specificity, ascending
-
+    entries = [(name, template_fields(info["template"]), info["n_results"])
+               for name, info in candidates.items()]
     violations = []
-    for i, (lo_name, lo_spec, lo_n) in enumerate(entries):
-        for hi_name, hi_spec, hi_n in entries[i + 1:]:
-            if hi_spec > lo_spec and hi_n > lo_n:
-                violations.append(
-                    f"{hi_name} (specificity {hi_spec}, n={hi_n}) > "
-                    f"{lo_name} (specificity {lo_spec}, n={lo_n})"
-                )
+    for lo_name, lo_f, lo_n in entries:
+        for hi_name, hi_f, hi_n in entries:
+            if lo_f < hi_f and hi_n > lo_n:          # hi adds constraints but has more hits
+                violations.append(f"{hi_name} (n={hi_n}) > {lo_name} (n={lo_n})")
     return violations
