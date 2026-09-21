@@ -648,7 +648,7 @@ def _(
 
     _retry_only_rows = {
         rid for rid in _found_rows
-        if latest_ranking.get(rid, {}).get("chosen_query_name") == "llm_retry"
+        if (latest_ranking.get(rid, {}).get("chosen_query_name") or "").startswith("llm_retry")
     }
 
     _retry_only_ppns = {
