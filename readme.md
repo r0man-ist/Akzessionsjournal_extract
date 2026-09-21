@@ -52,6 +52,12 @@ Safe to re-run — already completed rows are skipped automatically.
 Reads the JSONL log, ranks candidate PPNs per row by specificity and
 plausibility, and appends `ranking` events to the same JSONL.
 
+Weights are configured in match/ranking.py, e.g.:
+"title": 4.0,
+"author": 1.5,
+"year": 1.0,
+"publication_place": 0.5
+
 ```bash
 python rank.py output.csv log.jsonl \
     --uid-col "Lfd. Nr." \
