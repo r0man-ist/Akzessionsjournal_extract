@@ -31,19 +31,22 @@ failed.
 Read the original text fresh, as if the prior structured fields did not \
 exist — they may themselves be the reason the search failed.
 
-Identify the most likely reason the previous queries failed, then write ONE \
-complete, ready-to-run CQL query using only these fields:
-  pica.tit=  (title)
-  pica.jah=  (year)
-  pica.per=  (person / author)
+Identify the most likely reason the previous queries failed, then write \
+2 to 3 complete, ready-to-run CQL queries, ordered from strictest to broadest. \
+They are run in order until one finds the publication, so:
+- The first query should be the one most likely to hit precisely.
+- Each further query must use a genuinely different strategy (other title \
+  words, dropping the year, surname only, a different spelling), not just \
+  a minor variation.
+- Never repeat a query listed under "Queries already tried".
+- Every query must contain pica.tit or pica.per; a year alone is never enough.
+Use only these fields:
 
 STRICT SYNTAX RULES:
 
 - Wildcard truncation uses a single trailing asterisk on ONE word only: \
   pica.tit=Arabi* — never combine two truncated words into one token \
   (WRONG: pica.tit=Beschrijving*Arabi*), never use a leading asterisk.
-- To search multiple title words, repeat the field for each word and join \
-  with AND: pica.tit=Beschrijving* AND pica.tit=Arabi*
 - Do NOT use ~ (fuzzy match) — it is not supported by this catalogue.
 - Quote multi-word phrases you are NOT truncating: pica.tit="reize rondom"
 - Combine fields with AND. Only include fields useful for this entry.
