@@ -648,7 +648,7 @@ def _(
 
     _retry_only_rows = {
         rid for rid in _found_rows
-        if (latest_ranking.get(rid, {}).get("chosen_query_name") or "").startswith("llm_retry")
+        if (latest_ranking.get(rid, {}).get("chosen_query_name").startswith("llm_retry"))
     }
 
     _retry_only_ppns = {
@@ -733,6 +733,20 @@ def _(
     }
 
 
+    # 5) laxere Urteile LLM vs. Mensch ---------------------------------
+
+    _disagree_rows_llm_accept = {
+        pair[0] for pair, last in last_by_source_by_pair.items()
+        if "llm" in last and "human" in last and last["llm"] == "accept" and last["human"] != "accept"
+    }
+
+    _disagree_ppns_llm_accept = {
+        pair for pair, last in last_by_source_by_pair.items()
+        if "llm" in last and "human" in last and last["llm"] == "accept" and last["human"] != "accept"
+    }
+
+
+
     mo.md(f"""
 
     ## Statistik
@@ -743,6 +757,7 @@ def _(
     | kein Titel gefunden | {len(_none_found_rows)} | {_pct_of(len(_none_found_rows), _n)} | – | – |
     | gefundene Titel von LLM als „accept" bewertet | {len(_llm_accept_rows)} | {_pct_of(len(_llm_accept_rows), _n)} | {len(_llm_accept_ppns)} | {_pct_of(len(_llm_accept_ppns), len(_llm_judged_ppns_in_found))} || nur durch Mensch gefunden (PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), len(_reviewed_rows))} | {len(human_only_ppns)} | – |
     | Urteil Mensch ≠ LLM | {len(_disagree_rows)} | {_pct_of(len(_disagree_rows), _n)} | {len(_disagree_ppns)} | {_pct_of(len(_disagree_ppns), len(_found_ppns))} |
+    | Urteil LLM "accept"; Mensch "uncertain / reject" | {len(_disagree_rows_llm_accept)} | {_pct_of(len(_disagree_ppns_llm_accept), _n)} | {len(_disagree_ppns_llm_accept)} | {_pct_of(len(_disagree_ppns_llm_accept), len(_found_ppns))} |
     | Nur durch manuell angepasste Suche gefunden (zusätzlich, PPN ∉ Suchergebnisse) | {len(_human_only_rows)} | {_pct_of(len(_human_only_rows), _n)} | {len(human_only_ppns)} | – |
     *Zeilen-Basis: {_n} Zeilen aus der CSV · {len(_reviewed_rows)} davon mit mind. einem menschl. Urteil.*
 
@@ -759,59 +774,44 @@ def _(
     pd,
 ):
     def _latest_event(pair, source):
-
         _evs = [e for e in events_by_pair[pair] if e.get("judged_by") == source]
-
         return max(_evs, key=lambda e: e.get("ts", "")) if _evs else {}
-
 
     _records = []
 
     for _pair, _last in last_by_source_by_pair.items():
-
         if "llm" in _last and "human" in _last and _last["llm"] != _last["human"]:
-
             _h = _latest_event(_pair, "human")
-
             _l = _latest_event(_pair, "llm")
-
             _records.append({
-
                 "Lfd. Nr.": _pair[0],
-
                 "PPN": _pair[1],
-
                 "Urteil Mensch": _last["human"],
-
                 "Urteil LLM": _last["llm"],
-
                 "Konfidenz LLM": _l.get("confidence"),
-
                 "Notiz Mensch": _h.get("note"),
-
                 "Begründung LLM": _l.get("reasoning"),
-
             })
 
 
     disagree_df = (
-
         pd.DataFrame(_records)
-
         .merge(df[["Lfd. Nr.", "Titel"]], on="Lfd. Nr.", how="left")
-
         .sort_values("Lfd. Nr.", key=lambda s: s.astype(int))
-
         .reset_index(drop=True)
-
     )
 
-
+    disagree_df_llm_accept = disagree_df[(disagree_df["Urteil LLM"] == "accept") & (disagree_df["Urteil Mensch"] != "accept")
+    ].copy()
     mo.vstack([
 
         mo.md(f"### Urteil Mensch ≠ LLM · {disagree_df['Lfd. Nr.'].nunique()} Zeilen / {len(disagree_df)} PPNs"),
 
         mo.ui.table(disagree_df, selection=None),
+
+        mo.md(f"### Urteil LLM = accept vs. Urteil Mensch = reject / uncertain · {disagree_df_llm_accept['Lfd. Nr.'].nunique()} Zeilen / {len(disagree_df_llm_accept)} PPNs"),
+    
+        mo.ui.table(disagree_df_llm_accept, selection=None)
 
     ])
     return
