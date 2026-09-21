@@ -3,16 +3,28 @@ from pydantic import BaseModel, Field
 
 
 class JudgmentResult(BaseModel):
-    verdict: Literal["accept", "reject", "uncertain"] = Field(
-        description="Whether the candidate record matches the accession entry."
+    matching_fields: list[str] = Field(
+        description="Fields identical after the allowed normalizations, e.g. ['title', 'author', 'year', 'place']."
     )
-    confidence: Literal["high", "medium", "low"] = Field(
-        description="Confidence in the verdict."
+    volume_relation: Literal["same_unit", "volume_of_entry_work", "collective_of_entry_work", "not_applicable"] = Field(
+        description="How the record relates to the entry in terms of volumes/parts. "
+                    "A record for one volume, or the collective record, of the multivolume work in the entry "
+                    "goes here and NEVER into the discrepancy lists."
     )
-    reasoning: str = Field(
-        max_length=150,
-        description="A single short sentence (max ~20 words) naming the key matching or mismatching field(s).",
+    minor_discrepancies: list[str] = Field(
+        description="Small character-level differences only, each as 'field: entry <X> vs record <Y>'. "
+                    "Empty list if none."
     )
+    major_discrepancies: list[str] = Field(
+        description="All other differences, each as 'field: entry <X> vs record <Y>'. "
+                    "Do not explain or excuse them. Empty list if none."
+    )
+    missing_fields: list[str] = Field(
+        description="Fields present on one side only."
+    )
+    reasoning: str = Field(description="One short sentence naming the decisive field(s).")
+    verdict: Literal["accept", "reject", "uncertain"]
+    confidence: Literal["high", "medium", "low"]
 
 class DiagnosisResult(BaseModel):
     failure_reason: str = Field(description="One short sentence on why the previous queries likely failed.")
