@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from match.ranking import rank_candidates, find_monotonicity_violations
+from match.ranking import DEFAULT_TOLERANCE, rank_candidates, find_monotonicity_violations
 from utils.jsonl_log import EventLogger
 
 
@@ -35,7 +35,7 @@ def main():
     parser.add_argument("--uid-col", default="Lfd. Nr.")
     parser.add_argument("--expected-col", default="Zahl")
     parser.add_argument("--sep", default=";")
-    parser.add_argument("--tolerance", type=int, default=9)
+    parser.add_argument("--tolerance", type=int, default=DEFAULT_TOLERANCE)
     args = parser.parse_args()
 
     df = pd.read_csv(args.input_csv, sep=args.sep, dtype=str)
@@ -54,11 +54,10 @@ def main():
             for msg in find_monotonicity_violations(candidates):
                 logger.log(row_id, "monotonicity_violation", detail=msg, expected=expected)
 
-            if all(info["n_results"] == 0 for info in candidates.values()):
+            ranked = rank_candidates(candidates, expected=expected, tolerance=args.tolerance)
+            if not ranked:
                 logger.log(row_id, "ranking", status="no_candidates", expected=expected)
                 continue
-
-            ranked = rank_candidates(candidates, expected=expected, tolerance=args.tolerance)
             best = ranked[0]
 
             logger.log(row_id, "ranking", status="ok",
@@ -66,7 +65,7 @@ def main():
                     specificity=best.specificity,
                     n_results=best.n_results,
                     overlap_score=best.overlap_score,
-                    plausible=best.plausible,
+                    plausible=True,
                     ppns=best.ppns,
                     expected=expected)
 
