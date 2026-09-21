@@ -1,4 +1,4 @@
-# utils/ranking.py
+# match/ranking.py
 from __future__ import annotations
 import re
 from dataclasses import dataclass
@@ -6,11 +6,23 @@ from collections import Counter
 
 _PLACEHOLDER_RE = re.compile(r"\{!?[^{}!][^{}]*\}")
 
+DEFAULT_TOLERANCE = 9
+
 
 def specificity(template: str) -> int:
     """Number of distinct fields referenced in a CQL template — used as a proxy
     for how constrained/trustworthy a query is."""
     return len(_PLACEHOLDER_RE.findall(template))
+
+
+def is_plausible(n: int, expected: float | None, tolerance: int = DEFAULT_TOLERANCE) -> bool:
+    """A tier is plausible if it returned hits and, when an expected count is
+    known, no more than expected + tolerance of them."""
+    if n <= 0:
+        return False
+    if expected and expected > 0:
+        return n <= expected + tolerance
+    return True
 
 
 @dataclass
@@ -20,43 +32,38 @@ class RankedCandidate:
     n_results: int
     ppns: list[str]
     specificity: int
-    plausible: bool
     overlap_score: int = 0
 
-
-DEFAULT_TOLERANCE = 9
-
-def is_plausible(n: int, expected: float | None, tolerance: int = DEFAULT_TOLERANCE) -> bool:
-    if n <= 0:
-        return False
-    if expected and expected > 0:
-        return n <= expected + tolerance
-    return True
 
 def rank_candidates(
     candidates: dict[str, dict],
     expected: float | None,
-    tolerance: int = 9,
+    tolerance: int = DEFAULT_TOLERANCE,
 ) -> list[RankedCandidate]:
     """
     candidates: query_name -> {"n_results": int, "ppns": [...], "template": str}
-    (this is exactly the shape of candidate_index[row_id] from the notebook)
+    (the shape of candidate_index[row_id] from rank.py / the notebook)
 
-    Returns candidates ranked best-first. Callers should only trust ranked[0]
-    if ranked[0].plausible is True.
+    Returns only plausible tiers (see is_plausible), ranked best-first by:
+      1. specificity (more constrained query first)
+      2. closeness of n_results to the expected count
+      3. overlap with other plausible tiers
+
+    Returns an empty list if no tier is plausible — callers must handle that.
     """
-    entries = []
-    for name, info in candidates.items():
-        n = info["n_results"]
-        plausible = is_plausible(n, expected, tolerance)
-        if plausible:
-            entries.append(RankedCandidate(
-                query_name=name, template=info["template"], n_results=n,
-                ppns=info["ppns"], specificity=specificity(info["template"]),
-                plausible=plausible,
-            ))
+    entries = [
+        RankedCandidate(
+            query_name=name,
+            template=info["template"],
+            n_results=info["n_results"],
+            ppns=info["ppns"],
+            specificity=specificity(info["template"]),
+        )
+        for name, info in candidates.items()
+        if is_plausible(info["n_results"], expected, tolerance)
+    ]
 
-    # overlap: how many other tiers also surfaced each PPN
+    # overlap: how many other plausible tiers also surfaced each PPN
     ppn_counts = Counter()
     for e in entries:
         ppn_counts.update(set(e.ppns))
@@ -65,7 +72,7 @@ def rank_candidates(
 
     def sort_key(e: RankedCandidate):
         closeness = abs(e.n_results - expected) if expected else 0
-        return (not e.plausible, -e.specificity, closeness, -e.overlap_score)
+        return (-e.specificity, closeness, -e.overlap_score)
 
     return sorted(entries, key=sort_key)
 
