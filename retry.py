@@ -174,8 +174,13 @@ def run_retry_round(row_id, row, diagnosis, round_no, expected, args, client,
             result = judge_candidate(client, row.to_dict(), record_xml, ppn)
             judged_pairs.add((row_id, ppn))
             event_logger.log(row_id, "judgment", ppn=ppn, judged_by="llm",
-                             verdict=result.verdict, confidence=result.confidence,
-                             reasoning=result.reasoning)
+                            verdict=result.verdict, confidence=result.confidence,
+                            reasoning=result.reasoning,
+                            matching_fields=result.matching_fields,
+                            volume_relation=result.volume_relation,
+                            minor_discrepancies=result.minor_discrepancies,
+                            major_discrepancies=result.major_discrepancies,
+                            missing_fields=result.missing_fields)
             logger.info("Retried judgment row %s / PPN %s -> %s", row_id, ppn, result.verdict)
             accepted |= result.verdict == "accept"
 
