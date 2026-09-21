@@ -15,6 +15,10 @@ class JudgmentResult(BaseModel):
     )
 
 class DiagnosisResult(BaseModel):
-    failure_reason: str = Field(max_length=150, description="One short sentence on why the previous queries likely failed.")
-    proposed_query: str = Field(description="A complete, ready-to-run CQL query using only pica.tit, pica.jah, and pica.per fields.")
-    reasoning: str = Field(max_length=150, description="One short sentence on why this new query should work better.")
+    failure_reason: str = Field(description="One short sentence on why the previous queries likely failed.")
+    proposed_queries: list[str] = Field(
+        description="2-3 complete CQL queries, strictest first. Each must use a different "
+                    "strategy (e.g. other title words, with/without year, surname only). "
+                    "Never repeat a query that was already tried."
+    )
+    reasoning: str = Field(description="One short sentence on the strategy behind the queries.")
