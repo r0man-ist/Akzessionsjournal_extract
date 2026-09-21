@@ -5,6 +5,7 @@ from pathlib import Path
 import unicodedata
 
 import pandas as pd
+import json
 
 from utils.sru import prepare_cql_string, run_query, build_year_or_clause
 from utils.normalize_years import normalize_years
