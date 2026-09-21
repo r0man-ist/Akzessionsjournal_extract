@@ -11,7 +11,7 @@ from match.config import BASE_URL, MAX_TOKENS, MODEL, TEMPERATURE, TIMEOUT, REAS
 from judge import judge_candidate
 from match.models import DiagnosisResult
 from match.prompts import RETRY_SYSTEM_PROMPT, RETRY_USER_PROMPT
-from match.ranking import is_plausible, specificity
+from match.ranking import DEFAULT_TOLERANCE, is_plausible, specificity
 from match.rollup import needs_retry, row_judgment_summary
 from utils.jsonl_log import EventLogger
 from utils.llm import build_client, response_format
@@ -113,7 +113,7 @@ def main():
     parser.add_argument("--expected-col", default="Zahl")
     parser.add_argument("--catalogue", choices=["k10plus", "stabikat", "VD17"], default="stabikat")
     parser.add_argument("--sep", default=";")
-    parser.add_argument("--tolerance", type=int, default=9)
+    parser.add_argument("--tolerance", type=int, default=DEFAULT_TOLERANCE)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
