@@ -33,7 +33,7 @@ besides the title itself (like "translated by", or the like). Do not invent miss
 ## title_search — apply this exact procedure, in order:
 1. Lowercase everything.
 2. Remove all punctuation (periods, commas, quotation marks, parentheses).
-3. Remove ellipses ("...") and anything they mark as omitted/illegible.
+3. Remove ellipses ("...")
 4. Remove volume, part, or edition markers (e.g. "D. 1-3", "Bd. 2") — these belong
    in the `volume` field, not in title_search.
 5. DISCARD any abbreviated word — any word ending in a period in
@@ -45,7 +45,7 @@ besides the title itself (like "translated by", or the like). Do not invent miss
    remove meaningful content.
 7. Collapse whitespace to single spaces. Do not add words that are not in the
    source.
-8. Shorten the result to a maximum of 5 words, if there are that many. If there are fewer than 5 words, return all of them.
+8. Shorten the result to a maximum of 4 words, if there are that many.
 9. If a word is abbreviated in the source, do NOT include it in any form —
    neither abbreviated nor expanded.
 
