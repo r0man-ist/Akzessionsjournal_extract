@@ -11,7 +11,7 @@ from match.config import BASE_URL, MAX_TOKENS, MODEL, TEMPERATURE, TIMEOUT, REAS
 from judge import judge_candidate
 from match.models import DiagnosisResult
 from match.prompts import RETRY_SYSTEM_PROMPT, RETRY_USER_PROMPT
-from match.ranking import specificity
+from match.ranking import is_plausible, specificity
 from match.rollup import needs_retry, row_judgment_summary
 from utils.jsonl_log import EventLogger
 from utils.llm import build_client, response_format
@@ -166,7 +166,7 @@ def main():
 
             expected = pd.to_numeric(row[args.expected_col], errors="coerce")
             expected = None if pd.isna(expected) else float(expected)
-            plausible = n_results > 0 and (not expected or n_results <= expected * args.tolerance)
+            plausible = is_plausible(n_results, expected, args.tolerance)
 
             if plausible:
                 event_logger.log(row_id, "ranking", status="ok", chosen_query_name="llm_retry",
